@@ -48,6 +48,7 @@ class MotorState:
     target_speed: int = 1000
     target_position_mm: float = 0.0
     actual_position_mm: float = 0.0
+    actual_position_steps: int = 0
     encoder_position_mm: float = 0.0
     step_mode_to_set: int = 2
     step_mode_active: int = 2
