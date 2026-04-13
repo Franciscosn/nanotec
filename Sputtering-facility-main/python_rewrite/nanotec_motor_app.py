@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
 import tkinter as tk
 from tkinter import messagebox
 
@@ -7,6 +11,8 @@ from sputtering_app.controller import Controller
 from sputtering_app.devices.transport import list_serial_ports
 from sputtering_app.nanotec_gui import NanotecWindow
 from sputtering_app.runtime_settings import RuntimeSettings, default_runtime_settings, find_default_settings_file, load_runtime_settings
+
+DIAG_LOG = Path(__file__).resolve().parent / "nanotec_standalone_diagnostics.log"
 
 
 class NanotecStandaloneRuntime:
@@ -35,6 +41,9 @@ class NanotecStandaloneRuntime:
 
         self._tick_ms = 200
         self._alive = True
+        self._tick_inflight = False
+        self._tick_lock = threading.Lock()
+        self._diag("standalone started")
         self._schedule_tick()
 
     def _load_initial_runtime(self) -> RuntimeSettings:
@@ -61,6 +70,7 @@ class NanotecStandaloneRuntime:
         )
 
     def _on_message(self, message: str) -> None:
+        self._diag(f"controller message: {message}")
         if self.window is not None and self.window.winfo_exists():
             try:
                 self.window._log(message)  # noqa: SLF001 - reuse existing message pane
@@ -93,18 +103,30 @@ class NanotecStandaloneRuntime:
     def _schedule_tick(self) -> None:
         if not self._alive:
             return
-        self._tick_once()
+        if not self._tick_inflight:
+            self._tick_inflight = True
+            threading.Thread(target=self._tick_worker, daemon=True).start()
         self.root.after(self._tick_ms, self._schedule_tick)
 
-    def _tick_once(self) -> None:
+    def _tick_worker(self) -> None:
+        t0 = time.monotonic()
         try:
-            self.controller.tick()
-            self.window.on_state_tick(self.controller.state)
+            with self._tick_lock:
+                self.controller.tick()
+                state = self.controller.state
+            elapsed = time.monotonic() - t0
+            if elapsed > 0.35:
+                self._diag(f"slow tick: {elapsed:.3f}s")
+            self.root.after(0, lambda: self.window.on_state_tick(state))
         except Exception as exc:
             self._on_message(f"[ERR] standalone tick: {exc}")
+            self._diag(f"tick error: {exc}")
+        finally:
+            self._tick_inflight = False
 
     def _shutdown(self) -> None:
         self._alive = False
+        self._diag("standalone shutdown requested")
         try:
             self.controller.shutdown()
         except Exception:
@@ -118,6 +140,15 @@ class NanotecStandaloneRuntime:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    @staticmethod
+    def _diag(msg: str) -> None:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        try:
+            with DIAG_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(f"{ts}; {msg}\n")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
