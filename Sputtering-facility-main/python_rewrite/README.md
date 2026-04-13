@@ -34,6 +34,26 @@ Per Doppelklick:
 - macOS: `Start_Sputtering.command` (im Projekt-Root)
 - Windows: `Start_Sputtering.bat` (im Projekt-Root)
 
+
+## Standalone-App: Nur Nanotec Schrittmotoren
+
+Es gibt jetzt eine eigenstaendige Tkinter-Anwendung nur fuer die Nanotec-Motoren:
+
+```bash
+cd python_rewrite
+python3 nanotec_motor_app.py
+```
+
+Doppelklick-Start:
+
+- Windows: `Start_Nanotec_Motors.bat`
+- macOS/Linux: `Start_Nanotec_Motors.command`
+
+Hinweise:
+- Die App nutzt denselben Nanotec-Protokolltreiber (`sputtering_app.devices.nanotec`) wie die Hauptanwendung.
+- Schalter-/Shutter-Status koennen in dieser Standalone-Version manuell gesetzt werden. Das passt als Zwischenloesung, solange die Endschalter in NanoPro bereits als Hardware-Schutz parametriert sind.
+- Fahrereignisse (Start, Stop, Positionsupdates, Umkehrpunkte) werden in `python_rewrite/nanotec_motor_events.log` protokolliert.
+
 ## Runtime-Settings (neu)
 
 Simulation und Realbetrieb sind jetzt dieselbe App.
