@@ -76,7 +76,7 @@ class NanotecWindow(tk.Toplevel):
             2: "Sputterkammer",
         }
 
-        self.title("Schrittmotoren (Nanotec)")
+        self.title("Schrittmotoren (Nanotec) - Enhanced")
         self.geometry("1420x900")
         self.minsize(1180, 760)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -458,6 +458,21 @@ class NanotecWindow(tk.Toplevel):
         ttk.Button(cmd_row, text="Referenz", command=lambda idx=motor_index: self._reference_motor(idx)).grid(
             row=0, column=2, sticky="ew", padx=(4, 0)
         )
+        ttk.Button(
+            cmd_row,
+            text="Fahrt links",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.LEFT.value),
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0))
+        ttk.Button(
+            cmd_row,
+            text="Fahrt rechts",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.RIGHT.value),
+        ).grid(row=1, column=1, sticky="ew", padx=4, pady=(4, 0))
+        ttk.Button(
+            cmd_row,
+            text="Step-Dialog",
+            command=lambda idx=motor_index: self._open_step_dialog(idx),
+        ).grid(row=1, column=2, sticky="ew", padx=(4, 0), pady=(4, 0))
 
         preflight_row = ttk.Frame(control_box)
         preflight_row.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -1121,6 +1136,37 @@ class NanotecWindow(tk.Toplevel):
                 self._range_running[motor_index] = False
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _open_step_dialog(self, motor_index: int) -> None:
+        ui = self._motor_ui[motor_index]
+        win = tk.Toplevel(self)
+        win.title(f"Motor {motor_index}: Step-Bereich")
+        win.transient(self)
+        win.grab_set()
+
+        step_a_var = tk.StringVar(value=self._var(ui, "step_a_var").get())
+        step_b_var = tk.StringVar(value=self._var(ui, "step_b_var").get())
+        loops_var = tk.StringVar(value=self._var(ui, "range_loops_var").get())
+
+        frm = ttk.Frame(win, padding=10)
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(1, weight=1)
+
+        ttk.Label(frm, text="Schritt A:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=step_a_var).grid(row=0, column=1, sticky="ew", pady=2)
+        ttk.Label(frm, text="Schritt B:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=step_b_var).grid(row=1, column=1, sticky="ew", pady=2)
+        ttk.Label(frm, text="Zyklen:").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=loops_var).grid(row=2, column=1, sticky="ew", pady=2)
+
+        def _apply_and_start() -> None:
+            self._var(ui, "step_a_var").set(step_a_var.get())
+            self._var(ui, "step_b_var").set(step_b_var.get())
+            self._var(ui, "range_loops_var").set(loops_var.get())
+            win.destroy()
+            self._start_step_range(motor_index)
+
+        ttk.Button(frm, text="Starten", command=_apply_and_start).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
     def _move_motor_to_relative_step(self, motor_index: int, target_relative_step: int) -> None:
         motor = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
