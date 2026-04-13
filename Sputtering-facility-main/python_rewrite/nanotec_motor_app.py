@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import messagebox
 
 from sputtering_app.controller import Controller
 from sputtering_app.devices.transport import list_serial_ports
@@ -13,6 +14,7 @@ class NanotecStandaloneRuntime:
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title("Nanotec Standalone Host")
+        self.window: NanotecWindow | None = None
 
         self.runtime_settings = self._load_initial_runtime()
         self.controller = Controller(on_message=self._on_message, runtime=self.runtime_settings)
@@ -96,4 +98,12 @@ class NanotecStandaloneRuntime:
 
 
 if __name__ == "__main__":
-    NanotecStandaloneRuntime().run()
+    try:
+        NanotecStandaloneRuntime().run()
+    except Exception as exc:
+        # Fallback fuer Startfehler ausserhalb der Haupt-GUI.
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Nanotec Standalone Startfehler", str(exc), parent=root)
+        root.destroy()
+        raise
