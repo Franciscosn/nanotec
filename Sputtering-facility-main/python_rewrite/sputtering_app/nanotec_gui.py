@@ -22,6 +22,7 @@ Sicherheitsprinzipien in dieser GUI:
    Konkurrenzzugriffe auf COM-Ports.
 """
 
+import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -58,6 +59,8 @@ class NanotecWindow(tk.Toplevel):
         parent: tk.Misc,
         controller: "Controller",
         *,
+        motor_order: tuple[int, int] = (1, 2),
+        chamber_labels: dict[int, str] | None = None,
         get_runtime_settings: Callable[[], "RuntimeSettings"] | None = None,
         apply_runtime_settings: Callable[["RuntimeSettings"], None] | None = None,
         list_serial_ports_cb: Callable[[], list[str]] | None = None,
@@ -67,8 +70,13 @@ class NanotecWindow(tk.Toplevel):
         self._get_runtime_settings = get_runtime_settings
         self._apply_runtime_settings = apply_runtime_settings
         self._list_serial_ports_cb = list_serial_ports_cb
+        self._motor_order = motor_order if set(motor_order) == {1, 2} else (1, 2)
+        self._chamber_labels = chamber_labels or {
+            1: "Schleusenkammer",
+            2: "Sputterkammer",
+        }
 
-        self.title("Schrittmotoren (Nanotec)")
+        self.title("Schrittmotoren (Nanotec) - Enhanced")
         self.geometry("1420x900")
         self.minsize(1180, 760)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -106,6 +114,9 @@ class NanotecWindow(tk.Toplevel):
         # Pro Motor speichern wir alle GUI-Elemente in einem Dictionary.
         # Dadurch ist der Update-Code fuer Motor 1 und Motor 2 identisch.
         self._motor_ui: dict[int, dict[str, object]] = {}
+        self._step_zero_offset: dict[int, int] = {1: 0, 2: 0}
+        self._range_running: dict[int, bool] = {1: False, 2: False}
+        self._reference_zero_latched: dict[int, bool] = {1: False, 2: False}
 
         self._build_ui()
         self._refresh_ports()
@@ -339,11 +350,12 @@ class NanotecWindow(tk.Toplevel):
         body.columnconfigure(0, weight=1)
         body.columnconfigure(1, weight=1)
 
-        m1_frame = self._create_motor_panel(body, motor_index=1)
-        m1_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-
-        m2_frame = self._create_motor_panel(body, motor_index=2)
-        m2_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        for col, motor_index in enumerate(self._motor_order):
+            panel = self._create_motor_panel(body, motor_index=motor_index)
+            if col == 0:
+                panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+            else:
+                panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
 
         msg_frame = ttk.LabelFrame(outer, text="Meldungen", padding=6)
         msg_frame.pack(fill="both", expand=False, pady=(10, 0))
@@ -365,7 +377,12 @@ class NanotecWindow(tk.Toplevel):
 
         state = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
 
-        frame = ttk.LabelFrame(parent, text=f"Motor {motor_index} (Adresse {state.address})", padding=10)
+        chamber = self._chamber_labels.get(motor_index, "-")
+        frame = ttk.LabelFrame(
+            parent,
+            text=f"Motor {motor_index} - {chamber} (Adresse {state.address})",
+            padding=10,
+        )
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
 
@@ -441,6 +458,21 @@ class NanotecWindow(tk.Toplevel):
         ttk.Button(cmd_row, text="Referenz", command=lambda idx=motor_index: self._reference_motor(idx)).grid(
             row=0, column=2, sticky="ew", padx=(4, 0)
         )
+        ttk.Button(
+            cmd_row,
+            text="Fahrt links",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.LEFT.value),
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0))
+        ttk.Button(
+            cmd_row,
+            text="Fahrt rechts",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.RIGHT.value),
+        ).grid(row=1, column=1, sticky="ew", padx=4, pady=(4, 0))
+        ttk.Button(
+            cmd_row,
+            text="Step-Dialog",
+            command=lambda idx=motor_index: self._open_step_dialog(idx),
+        ).grid(row=1, column=2, sticky="ew", padx=(4, 0), pady=(4, 0))
 
         preflight_row = ttk.Frame(control_box)
         preflight_row.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -462,6 +494,45 @@ class NanotecWindow(tk.Toplevel):
         ttk.Label(control_box, textvariable=preflight_start_var).grid(row=10, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ttk.Label(control_box, textvariable=preflight_ref_var).grid(row=11, column=0, columnspan=2, sticky="w")
 
+        jog_row = ttk.Frame(control_box)
+        jog_row.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        jog_row.columnconfigure(0, weight=1)
+        jog_row.columnconfigure(1, weight=1)
+        ttk.Button(
+            jog_row,
+            text="Fahrt links",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.LEFT.value),
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(
+            jog_row,
+            text="Fahrt rechts",
+            command=lambda idx=motor_index: self._jog_motor(idx, MotorDirection.RIGHT.value),
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        range_frame = ttk.LabelFrame(control_box, text="Manuell zwischen Schrittzahlen fahren", padding=6)
+        range_frame.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        range_frame.columnconfigure(1, weight=1)
+
+        step_a_var = tk.StringVar(value="0")
+        step_b_var = tk.StringVar(value="1000")
+        range_loops_var = tk.StringVar(value="1")
+        ttk.Label(range_frame, text="Schritt A:").grid(row=0, column=0, sticky="w", pady=1)
+        ttk.Entry(range_frame, textvariable=step_a_var, width=12).grid(row=0, column=1, sticky="ew", pady=1)
+        ttk.Label(range_frame, text="Schritt B:").grid(row=1, column=0, sticky="w", pady=1)
+        ttk.Entry(range_frame, textvariable=step_b_var, width=12).grid(row=1, column=1, sticky="ew", pady=1)
+        ttk.Label(range_frame, text="Zyklen:").grid(row=2, column=0, sticky="w", pady=1)
+        ttk.Entry(range_frame, textvariable=range_loops_var, width=12).grid(row=2, column=1, sticky="ew", pady=1)
+        ttk.Button(
+            range_frame,
+            text="Step-Bereich starten",
+            command=lambda idx=motor_index: self._start_step_range(idx),
+        ).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Button(
+            range_frame,
+            text="Step-Bereich stoppen",
+            command=lambda idx=motor_index: self._stop_step_range(idx),
+        ).grid(row=4, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
         # ---------------- Live-Status ----------------
         status_box = ttk.LabelFrame(frame, text="Live-Status", padding=8)
         status_box.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -474,6 +545,8 @@ class NanotecWindow(tk.Toplevel):
         active_step_mode_var = tk.StringVar(value="active step mode: -")
         actual_pos_var = tk.StringVar(value="actual position: -")
         encoder_pos_var = tk.StringVar(value="encoder position: -")
+        actual_steps_var = tk.StringVar(value="actual steps: -")
+        relative_steps_var = tk.StringVar(value="steps since zero: -")
         runtime_var = tk.StringVar(value="runtime: -")
         rest_var = tk.StringVar(value="rest time: -")
         expected_var = tk.StringVar(value="expected runtime: -")
@@ -488,19 +561,26 @@ class NanotecWindow(tk.Toplevel):
         ttk.Label(status_box, textvariable=active_step_mode_var).grid(row=4, column=0, columnspan=2, sticky="w", pady=1)
         ttk.Label(status_box, textvariable=actual_pos_var).grid(row=5, column=0, columnspan=2, sticky="w", pady=1)
         ttk.Label(status_box, textvariable=encoder_pos_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=runtime_var).grid(row=7, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=rest_var).grid(row=8, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=expected_var).grid(row=9, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=referenced_var).grid(row=10, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=soft_limit_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=1)
-        ttk.Label(status_box, textvariable=limit_reason_var).grid(row=12, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=actual_steps_var).grid(row=7, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=relative_steps_var).grid(row=8, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Button(
+            status_box,
+            text="Nullpunkt = aktueller Schrittwert",
+            command=lambda idx=motor_index: self._set_step_zero_here(idx),
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 2))
+        ttk.Label(status_box, textvariable=runtime_var).grid(row=10, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=rest_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=expected_var).grid(row=12, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=referenced_var).grid(row=13, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=soft_limit_var).grid(row=14, column=0, columnspan=2, sticky="w", pady=1)
+        ttk.Label(status_box, textvariable=limit_reason_var).grid(row=15, column=0, columnspan=2, sticky="w", pady=1)
 
-        ttk.Label(status_box, text="Progress:").grid(row=13, column=0, sticky="w", pady=(8, 2))
+        ttk.Label(status_box, text="Progress:").grid(row=16, column=0, sticky="w", pady=(8, 2))
         progress = ttk.Progressbar(status_box, orient="horizontal", mode="determinate", maximum=100.0)
-        progress.grid(row=13, column=1, sticky="ew", pady=(8, 2))
+        progress.grid(row=16, column=1, sticky="ew", pady=(8, 2))
 
         motor_leds = ttk.LabelFrame(status_box, text="Motor-LEDs", padding=6)
-        motor_leds.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        motor_leds.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Label(motor_leds, text="Connected:").grid(row=0, column=0, sticky="w")
         connected_led = self._create_indicator(motor_leds)
         connected_led.grid(row=0, column=1, sticky="w", padx=(4, 12))
@@ -510,22 +590,29 @@ class NanotecWindow(tk.Toplevel):
 
         # Tasteranzeige: links/rechts mit kleinen LED-Punkten.
         taster_frame = ttk.LabelFrame(status_box, text="Taster / Endschalter", padding=6)
-        taster_frame.grid(row=15, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        taster_frame.grid(row=18, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         taster_frame.columnconfigure(1, weight=1)
         taster_frame.columnconfigure(3, weight=1)
+
+        mapping_text_var = tk.StringVar(value=self._taster_mapping_text(motor_index))
+        ttk.Label(
+            taster_frame,
+            textvariable=mapping_text_var,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
         left_text_var = tk.StringVar(value="links: -")
         right_text_var = tk.StringVar(value="rechts: -")
 
-        ttk.Label(taster_frame, text="Links:").grid(row=0, column=0, sticky="w")
+        ttk.Label(taster_frame, text="Links:").grid(row=1, column=0, sticky="w")
         left_led = self._create_indicator(taster_frame)
-        left_led.grid(row=0, column=1, sticky="w", padx=(4, 6))
-        ttk.Label(taster_frame, textvariable=left_text_var).grid(row=0, column=2, sticky="w")
+        left_led.grid(row=1, column=1, sticky="w", padx=(4, 6))
+        ttk.Label(taster_frame, textvariable=left_text_var).grid(row=1, column=2, sticky="w")
 
-        ttk.Label(taster_frame, text="Rechts:").grid(row=1, column=0, sticky="w")
+        ttk.Label(taster_frame, text="Rechts:").grid(row=2, column=0, sticky="w")
         right_led = self._create_indicator(taster_frame)
-        right_led.grid(row=1, column=1, sticky="w", padx=(4, 6))
-        ttk.Label(taster_frame, textvariable=right_text_var).grid(row=1, column=2, sticky="w")
+        right_led.grid(row=2, column=1, sticky="w", padx=(4, 6))
+        ttk.Label(taster_frame, textvariable=right_text_var).grid(row=2, column=2, sticky="w")
 
         self._motor_ui[motor_index] = {
             # Sollwert-Felder
@@ -543,6 +630,8 @@ class NanotecWindow(tk.Toplevel):
             "active_step_mode_var": active_step_mode_var,
             "actual_pos_var": actual_pos_var,
             "encoder_pos_var": encoder_pos_var,
+            "actual_steps_var": actual_steps_var,
+            "relative_steps_var": relative_steps_var,
             "runtime_var": runtime_var,
             "rest_var": rest_var,
             "expected_var": expected_var,
@@ -558,11 +647,20 @@ class NanotecWindow(tk.Toplevel):
             "right_led": right_led,
             "left_text_var": left_text_var,
             "right_text_var": right_text_var,
+            "mapping_text_var": mapping_text_var,
             "preflight_start_var": preflight_start_var,
             "preflight_ref_var": preflight_ref_var,
+            "step_a_var": step_a_var,
+            "step_b_var": step_b_var,
+            "range_loops_var": range_loops_var,
         }
 
         return frame
+
+    def _taster_mapping_text(self, motor_index: int) -> str:
+        if motor_index == 1:
+            return "Schleusenkammer: Taster #1=links, #2=rechts, #3=Safety extern"
+        return "Sputterkammer: Taster #1=links, #3=rechts, #2=zwischenposition"
 
     # ------------------------------------------------------------------
     # Runtime bridge
@@ -890,8 +988,10 @@ class NanotecWindow(tk.Toplevel):
         self._var(ui, "target_speed_var").set(str(int(motor.target_speed)))
         self._var(ui, "target_pos_var").set(f"{float(motor.target_position_mm):.3f}")
         self._var(ui, "step_mode_var").set(str(int(motor.step_mode_to_set)))
-        self._var(ui, "direction_var").set(motor.direction.value)
-        self._var(ui, "reference_direction_var").set(motor.reference_direction.value)
+        self._var(ui, "direction_var").set(self._ui_direction_for_motor(motor_index, motor.direction.value))
+        self._var(ui, "reference_direction_var").set(
+            self._ui_direction_for_motor(motor_index, motor.reference_direction.value)
+        )
         self._var(ui, "loops_var").set(str(int(motor.loops)))
         self._log(f"Motor {motor_index}: Eingabefelder aus aktuellem State geladen.")
 
@@ -913,6 +1013,8 @@ class NanotecWindow(tk.Toplevel):
             direction = str(self._var(ui, "direction_var").get())
             reference_direction = str(self._var(ui, "reference_direction_var").get())
             loops = int(float(self._var(ui, "loops_var").get()))
+            direction = self._effective_direction_for_motor(motor_index, direction)
+            reference_direction = self._effective_direction_for_motor(motor_index, reference_direction)
 
             ok = self._controller.configure_motor(
                 motor_index,
@@ -934,6 +1036,182 @@ class NanotecWindow(tk.Toplevel):
                 parent=self,
             )
             self._log(f"[ERR] Motor {motor_index} parameter update failed: {exc}")
+
+    @staticmethod
+    def _effective_direction_for_motor(motor_index: int, direction: str) -> str:
+        """
+        Richtungskorrektur fuer die Kammermechanik.
+
+        Motor 2 ist in dieser Anlage invertiert verdrahtet/ausgerichtet:
+        UI-Richtung "Left" muss physisch als "Right" gesendet werden (und umgekehrt).
+        """
+
+        token = str(direction).strip()
+        if motor_index != 2:
+            return token
+        if token == MotorDirection.LEFT.value:
+            return MotorDirection.RIGHT.value
+        if token == MotorDirection.RIGHT.value:
+            return MotorDirection.LEFT.value
+        return token
+
+    @staticmethod
+    def _ui_direction_for_motor(motor_index: int, direction: str) -> str:
+        return NanotecWindow._effective_direction_for_motor(motor_index, direction)
+
+    def _jog_motor(self, motor_index: int, direction_ui: str) -> None:
+        """
+        Startet eine manuelle Dauerfahrt nach links/rechts.
+
+        Die Bewegung bleibt ueber die bestehenden Endschalter- und Softlimit-
+        Safeties im Controller abgesichert.
+        """
+
+        try:
+            motor = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
+            direction = self._effective_direction_for_motor(motor_index, direction_ui)
+            ok = self._controller.configure_motor(
+                motor_index,
+                target_speed=float(motor.target_speed),
+                target_position_mm=99999.0,
+                step_mode=int(motor.step_mode_to_set),
+                direction=direction,
+                reference_direction=self._effective_direction_for_motor(motor_index, motor.reference_direction.value),
+                loops=1,
+            )
+            if not ok:
+                self._log(f"Motor {motor_index}: Jog konnte nicht vorbereitet werden.")
+                return
+            self._controller.start_motor(motor_index)
+            self._log(f"Motor {motor_index}: Jog gestartet ({direction_ui}).")
+        except Exception as exc:
+            messagebox.showerror("Jog fehlgeschlagen", f"Motor {motor_index}: {exc}", parent=self)
+            self._log(f"[ERR] Motor {motor_index}: Jog fehlgeschlagen: {exc}")
+
+    def _set_step_zero_here(self, motor_index: int) -> None:
+        motor = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
+        self._step_zero_offset[motor_index] = int(motor.actual_position_steps)
+        self._log(
+            f"Motor {motor_index}: Schritt-Nullpunkt gesetzt auf {self._step_zero_offset[motor_index]} (absolut)."
+        )
+
+    def _stop_step_range(self, motor_index: int) -> None:
+        self._range_running[motor_index] = False
+        try:
+            self._controller.stop_motor(motor_index)
+        except Exception:
+            pass
+        self._log(f"Motor {motor_index}: Step-Bereich gestoppt.")
+
+    def _start_step_range(self, motor_index: int) -> None:
+        if self._range_running.get(motor_index, False):
+            self._log(f"Motor {motor_index}: Step-Bereich laeuft bereits.")
+            return
+
+        ui = self._motor_ui[motor_index]
+        try:
+            step_a = int(float(self._var(ui, "step_a_var").get()))
+            step_b = int(float(self._var(ui, "step_b_var").get()))
+            loops = max(1, int(float(self._var(ui, "range_loops_var").get())))
+        except Exception as exc:
+            messagebox.showerror("Step-Bereich ungültig", f"Motor {motor_index}: {exc}", parent=self)
+            return
+
+        self._range_running[motor_index] = True
+
+        def _worker() -> None:
+            try:
+                targets = (step_a, step_b)
+                for _ in range(loops):
+                    if not self._range_running.get(motor_index, False):
+                        break
+                    for target in targets:
+                        if not self._range_running.get(motor_index, False):
+                            break
+                        self._move_motor_to_relative_step(motor_index, target)
+                self._log(f"Motor {motor_index}: Step-Bereich abgeschlossen.")
+            except Exception as exc:
+                self._log(f"[ERR] Motor {motor_index}: Step-Bereich fehlgeschlagen: {exc}")
+            finally:
+                self._range_running[motor_index] = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _open_step_dialog(self, motor_index: int) -> None:
+        ui = self._motor_ui[motor_index]
+        win = tk.Toplevel(self)
+        win.title(f"Motor {motor_index}: Step-Bereich")
+        win.transient(self)
+        win.grab_set()
+
+        step_a_var = tk.StringVar(value=self._var(ui, "step_a_var").get())
+        step_b_var = tk.StringVar(value=self._var(ui, "step_b_var").get())
+        loops_var = tk.StringVar(value=self._var(ui, "range_loops_var").get())
+
+        frm = ttk.Frame(win, padding=10)
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(1, weight=1)
+
+        ttk.Label(frm, text="Schritt A:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=step_a_var).grid(row=0, column=1, sticky="ew", pady=2)
+        ttk.Label(frm, text="Schritt B:").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=step_b_var).grid(row=1, column=1, sticky="ew", pady=2)
+        ttk.Label(frm, text="Zyklen:").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Entry(frm, textvariable=loops_var).grid(row=2, column=1, sticky="ew", pady=2)
+
+        def _apply_and_start() -> None:
+            self._var(ui, "step_a_var").set(step_a_var.get())
+            self._var(ui, "step_b_var").set(step_b_var.get())
+            self._var(ui, "range_loops_var").set(loops_var.get())
+            win.destroy()
+            self._start_step_range(motor_index)
+
+        ttk.Button(frm, text="Starten", command=_apply_and_start).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+
+    def _move_motor_to_relative_step(self, motor_index: int, target_relative_step: int) -> None:
+        motor = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
+        zero = int(self._step_zero_offset.get(motor_index, 0))
+        current_abs = int(motor.actual_position_steps)
+        target_abs = zero + int(target_relative_step)
+        delta_steps = target_abs - current_abs
+        if delta_steps == 0:
+            return
+
+        target_mm = self._steps_to_mm(abs(delta_steps), motor)
+        desired_direction_ui = MotorDirection.LEFT.value if delta_steps > 0 else MotorDirection.RIGHT.value
+        desired_direction = self._effective_direction_for_motor(motor_index, desired_direction_ui)
+
+        ok = self._controller.configure_motor(
+            motor_index,
+            target_speed=float(motor.target_speed),
+            target_position_mm=float(target_mm),
+            step_mode=int(motor.step_mode_to_set),
+            direction=desired_direction,
+            reference_direction=self._effective_direction_for_motor(motor_index, motor.reference_direction.value),
+            loops=1,
+        )
+        if not ok:
+            raise RuntimeError("configure_motor failed")
+
+        self._controller.start_motor(motor_index)
+        self._wait_until_motor_stops(motor_index, timeout_s=180.0)
+
+    @staticmethod
+    def _steps_to_mm(steps: int, motor: MotorState) -> float:
+        step_mode = int(motor.step_mode_active or motor.step_mode_to_set or 1)
+        calibration = float(motor.calibration if abs(motor.calibration) > 1.0e-12 else 1.0)
+        return abs(float(steps)) * calibration / (10000.0 * step_mode)
+
+    def _wait_until_motor_stops(self, motor_index: int, timeout_s: float) -> None:
+        start = time.monotonic()
+        while time.monotonic() - start <= timeout_s:
+            motor = self._controller.state.motor1 if motor_index == 1 else self._controller.state.motor2
+            if not motor.running:
+                return
+            if not self._range_running.get(motor_index, True):
+                return
+            time.sleep(0.05)
+        raise TimeoutError(f"Motor {motor_index} motion timeout")
 
     def _start_motor(self, motor_index: int) -> None:
         try:
@@ -1051,7 +1329,8 @@ class NanotecWindow(tk.Toplevel):
 
         panel = ui.get("panel_frame")
         if isinstance(panel, ttk.LabelFrame):
-            panel.configure(text=f"Motor {motor_index} (Adresse {motor.address})")
+            chamber = self._chamber_labels.get(motor_index, "-")
+            panel.configure(text=f"Motor {motor_index} - {chamber} (Adresse {motor.address})")
 
         self._var(ui, "connected_var").set(f"connected: {bool(motor.connected)}")
         self._var(ui, "running_var").set(f"running: {bool(motor.running)}")
@@ -1060,6 +1339,19 @@ class NanotecWindow(tk.Toplevel):
         self._var(ui, "active_step_mode_var").set(f"active step mode: {int(motor.step_mode_active)}")
         self._var(ui, "actual_pos_var").set(f"actual position: {motor.actual_position_mm:.3f} mm")
         self._var(ui, "encoder_pos_var").set(f"encoder position: {motor.encoder_position_mm:.3f} mm")
+        if motor.referenced and not self._reference_zero_latched.get(motor_index, False):
+            self._step_zero_offset[motor_index] = int(motor.actual_position_steps)
+            self._reference_zero_latched[motor_index] = True
+            self._log(
+                f"Motor {motor_index}: Referenz erkannt, Schritt-Nullpunkt automatisch auf "
+                f"{self._step_zero_offset[motor_index]} gesetzt."
+            )
+        if not motor.referenced:
+            self._reference_zero_latched[motor_index] = False
+        abs_steps = int(motor.actual_position_steps)
+        rel_steps = abs_steps - int(self._step_zero_offset.get(motor_index, 0))
+        self._var(ui, "actual_steps_var").set(f"actual steps: {abs_steps}")
+        self._var(ui, "relative_steps_var").set(f"steps since zero: {rel_steps}")
         self._var(ui, "runtime_var").set(f"runtime: {motor.runtime_sec:.2f} s")
         self._var(ui, "rest_var").set(f"rest time: {motor.rest_sec:.2f} s")
         self._var(ui, "expected_var").set(f"expected runtime: {motor.expected_runtime_sec:.2f} s")
