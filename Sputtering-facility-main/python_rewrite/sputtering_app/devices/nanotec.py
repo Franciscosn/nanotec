@@ -136,6 +136,7 @@ class NanotecDevice:
         pos = self._parse_prefixed_int(pos_raw, "C")
         if pos is not None:
             motor.initial_position_steps = pos
+            motor.actual_position_steps = pos
             motor.actual_position_mm = self._steps_to_mm(pos, motor)
 
         motor.expected_runtime_sec = self._expected_runtime(motor, target_steps)
@@ -170,6 +171,7 @@ class NanotecDevice:
         pos = self._parse_prefixed_int(pos_raw, "C")
         if pos is not None:
             motor.initial_position_steps = pos
+            motor.actual_position_steps = pos
             motor.actual_position_mm = self._steps_to_mm(pos, motor)
 
         motor.expected_runtime_sec = self._expected_runtime(motor, target_steps)
@@ -236,6 +238,7 @@ class NanotecDevice:
         pos_raw = self._query(motor.address, "C")
         pos = self._parse_prefixed_int(pos_raw, "C")
         if pos is not None:
+            motor.actual_position_steps = pos
             motor.actual_position_mm = self._steps_to_mm(pos, motor)
 
         # Schrittmodus nur auslesen, wenn der Motor nicht laeuft.
