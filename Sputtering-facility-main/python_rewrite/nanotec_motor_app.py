@@ -45,6 +45,7 @@ class NanotecStandaloneRuntime:
         self._alive = True
         self._tick_inflight = False
         self._tick_lock = threading.Lock()
+        self._nanotec_backoff_until = 0.0
         self._diag("standalone started")
         self._schedule_tick()
 
@@ -72,21 +73,29 @@ class NanotecStandaloneRuntime:
         )
 
     def _on_message(self, message: str) -> None:
-        self._diag(f"controller message: {message}")
-        if ("PermissionError(13" in message or "could not open port" in message) and not self._port_error_notified:
-            self._port_error_notified = True
-            self.root.after(
-                0,
-                lambda: messagebox.showwarning(
-                    "COM-Port blockiert",
-                    (
-                        "COM-Port kann nicht geoeffnet werden (Zugriff verweigert).\n\n"
-                        "Bitte andere Programme mit COM4 schliessen (z.B. NanoPro/Terminal) "
-                        "und dann 'Nanotec neu verbinden' klicken."
+        msg_l = str(message).lower()
+        if ("permissionerror(13" in msg_l or "could not open port" in msg_l) and "nanotec" in msg_l:
+            self._nanotec_backoff_until = time.monotonic() + 2.5
+            if not self._port_error_notified:
+                self._port_error_notified = True
+                self.root.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "COM-Port blockiert",
+                        (
+                            "COM-Port kann nicht geoeffnet werden (Zugriff verweigert).\n\n"
+                            "Bitte andere Programme mit COM4 schliessen (z.B. NanoPro/Terminal) "
+                            "und dann 'Nanotec neu verbinden' klicken."
+                        ),
+                        parent=self.window if self.window is not None else self.root,
                     ),
-                    parent=self.window if self.window is not None else self.root,
-                ),
-            )
+                )
+
+        # Standalone-Log auf relevante Meldungen begrenzen.
+        if "nanotec" not in msg_l and "motor " not in msg_l and "preflight" not in msg_l:
+            return
+
+        self._diag(f"controller message: {message}")
         if self.window is not None and self.window.winfo_exists():
             try:
                 self.window._log(message)  # noqa: SLF001 - reuse existing message pane
@@ -128,8 +137,13 @@ class NanotecStandaloneRuntime:
     def _tick_worker(self) -> None:
         t0 = time.monotonic()
         try:
+            now = time.monotonic()
+            if now < self._nanotec_backoff_until:
+                self.root.after(0, lambda: self.window.on_state_tick(self.controller.state))
+                return
             with self._tick_lock:
-                self.controller.tick()
+                # Standalone soll nur Nanotec bedienen (keine anderen Backends ticken).
+                self.controller._tick_nanotec_port(time.monotonic())  # noqa: SLF001
                 state = self.controller.state
             elapsed = time.monotonic() - t0
             if elapsed > 0.35:
