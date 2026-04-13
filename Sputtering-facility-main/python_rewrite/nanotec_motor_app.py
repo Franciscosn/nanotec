@@ -21,9 +21,11 @@ class NanotecStandaloneRuntime:
         self.root.withdraw()
         self.root.title("Nanotec Standalone Host")
         self.window: NanotecWindow | None = None
+        self._port_error_notified = False
 
         self.runtime_settings = self._load_initial_runtime()
         self.controller = Controller(on_message=self._on_message, runtime=self.runtime_settings)
+        self._apply_standalone_defaults(self.controller)
 
         # Gewuenschte Darstellung laut Bedienwunsch:
         # links: Motor 2 (Sputterkammer), rechts: Motor 1 (Schleusenkammer)
@@ -71,6 +73,20 @@ class NanotecStandaloneRuntime:
 
     def _on_message(self, message: str) -> None:
         self._diag(f"controller message: {message}")
+        if ("PermissionError(13" in message or "could not open port" in message) and not self._port_error_notified:
+            self._port_error_notified = True
+            self.root.after(
+                0,
+                lambda: messagebox.showwarning(
+                    "COM-Port blockiert",
+                    (
+                        "COM-Port kann nicht geoeffnet werden (Zugriff verweigert).\n\n"
+                        "Bitte andere Programme mit COM4 schliessen (z.B. NanoPro/Terminal) "
+                        "und dann 'Nanotec neu verbinden' klicken."
+                    ),
+                    parent=self.window if self.window is not None else self.root,
+                ),
+            )
         if self.window is not None and self.window.winfo_exists():
             try:
                 self.window._log(message)  # noqa: SLF001 - reuse existing message pane
@@ -94,6 +110,7 @@ class NanotecStandaloneRuntime:
         )
         old_controller = self.controller
         self.controller = Controller(on_message=self._on_message, runtime=self.runtime_settings)
+        self._apply_standalone_defaults(self.controller)
         self.window.set_controller(self.controller)
         try:
             old_controller.shutdown()
@@ -140,6 +157,34 @@ class NanotecStandaloneRuntime:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    @staticmethod
+    def _apply_standalone_defaults(controller: Controller) -> None:
+        """
+        Fuer Standalone-Betrieb:
+        - Preflight-Huerde deaktivieren (Legacy-artiger Start links/rechts)
+        - unbekannte Limit-Eingaenge tolerieren
+        - kuerzeres Nanotec-Timeout fuer schnellere Port-Reaktionen
+        """
+
+        try:
+            controller.set_nanotec_test_override("service_mode", True)
+            controller.set_nanotec_test_override("bypass_preflight_requirement", True)
+            controller.set_nanotec_test_override("allow_unknown_limit_inputs", True)
+        except Exception:
+            pass
+        try:
+            s = controller.nanotec_device.settings
+            controller.nanotec_device.settings = type(s)(
+                port=s.port,
+                baudrate=s.baudrate,
+                parity=s.parity,
+                bytesize=s.bytesize,
+                stopbits=s.stopbits,
+                timeout=0.25,
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def _diag(msg: str) -> None:
