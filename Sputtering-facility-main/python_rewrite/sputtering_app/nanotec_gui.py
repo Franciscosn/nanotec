@@ -87,6 +87,7 @@ class NanotecWindow(tk.Toplevel):
         self._mode_select_var = tk.StringVar(value="simulation" if runtime.simulation else "real")
         self._mode_state_var = tk.StringVar(value="")
         self._mode_internal_change = False
+        self._invert_m2_direction_var = tk.BooleanVar(value=True)
         self._port_var = tk.StringVar(value=str(runtime.ports.get("nanotec", "")).strip())
         self._port_state_var = tk.StringVar(value="Portstatus: unbekannt")
         self._address_m1_var = tk.StringVar(value=str(self._controller.state.motor1.address))
@@ -117,6 +118,20 @@ class NanotecWindow(tk.Toplevel):
         self._step_zero_offset: dict[int, int] = {1: 0, 2: 0}
         self._range_running: dict[int, bool] = {1: False, 2: False}
         self._reference_zero_latched: dict[int, bool] = {1: False, 2: False}
+        self._last_encoder_mm: dict[int, float] = {1: 0.0, 2: 0.0}
+        self._shaft_moving: dict[int, bool] = {1: False, 2: False}
+        self._cnc_status_vars: dict[int, dict[str, tk.StringVar]] = {
+            1: {
+                "motor": tk.StringVar(value="M1 Motor: -"),
+                "shaft": tk.StringVar(value="M1 Welle: -"),
+                "position": tk.StringVar(value="M1 Position: -"),
+            },
+            2: {
+                "motor": tk.StringVar(value="M2 Motor: -"),
+                "shaft": tk.StringVar(value="M2 Welle: -"),
+                "position": tk.StringVar(value="M2 Position: -"),
+            },
+        }
 
         self._build_ui()
         self._refresh_ports()
@@ -188,6 +203,11 @@ class NanotecWindow(tk.Toplevel):
             sticky="w",
             pady=(6, 0),
         )
+        ttk.Checkbutton(
+            mode_top,
+            text="M2 Richtung invertiert",
+            variable=self._invert_m2_direction_var,
+        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
         ttk.Label(header, text="Backend:").grid(row=0, column=1, sticky="e", padx=(12, 6), pady=2)
         ttk.Label(header, textvariable=self._backend_health_var).grid(row=0, column=2, sticky="w", pady=2)
@@ -344,6 +364,21 @@ class NanotecWindow(tk.Toplevel):
             text="Alle Overrides zuruecksetzen",
             command=self._reset_overrides_clicked,
         ).grid(row=5, column=0, sticky="w", pady=(8, 0))
+
+        cnc_panel = ttk.LabelFrame(outer, text="CNC-Status (Live)", padding=8)
+        cnc_panel.pack(fill="x", pady=(8, 0))
+        for col in range(2):
+            cnc_panel.columnconfigure(col, weight=1)
+        for idx, motor_index in enumerate((1, 2)):
+            block = ttk.Frame(cnc_panel)
+            block.grid(row=0, column=idx, sticky="ew", padx=(0, 8) if idx == 0 else (8, 0))
+            ttk.Label(block, textvariable=self._cnc_status_vars[motor_index]["motor"], font=("TkDefaultFont", 10, "bold")).grid(
+                row=0, column=0, sticky="w"
+            )
+            ttk.Label(block, textvariable=self._cnc_status_vars[motor_index]["shaft"], font=("TkDefaultFont", 10, "bold")).grid(
+                row=1, column=0, sticky="w"
+            )
+            ttk.Label(block, textvariable=self._cnc_status_vars[motor_index]["position"]).grid(row=2, column=0, sticky="w")
 
         body = ttk.Frame(outer)
         body.pack(fill="both", expand=True, pady=(10, 0))
@@ -1037,8 +1072,7 @@ class NanotecWindow(tk.Toplevel):
             )
             self._log(f"[ERR] Motor {motor_index} parameter update failed: {exc}")
 
-    @staticmethod
-    def _effective_direction_for_motor(motor_index: int, direction: str) -> str:
+    def _effective_direction_for_motor(self, motor_index: int, direction: str) -> str:
         """
         Richtungskorrektur fuer die Kammermechanik.
 
@@ -1047,7 +1081,7 @@ class NanotecWindow(tk.Toplevel):
         """
 
         token = str(direction).strip()
-        if motor_index != 2:
+        if motor_index != 2 or not bool(self._invert_m2_direction_var.get()):
             return token
         if token == MotorDirection.LEFT.value:
             return MotorDirection.RIGHT.value
@@ -1055,9 +1089,8 @@ class NanotecWindow(tk.Toplevel):
             return MotorDirection.LEFT.value
         return token
 
-    @staticmethod
-    def _ui_direction_for_motor(motor_index: int, direction: str) -> str:
-        return NanotecWindow._effective_direction_for_motor(motor_index, direction)
+    def _ui_direction_for_motor(self, motor_index: int, direction: str) -> str:
+        return self._effective_direction_for_motor(motor_index, direction)
 
     def _jog_motor(self, motor_index: int, direction_ui: str) -> None:
         """
@@ -1350,6 +1383,11 @@ class NanotecWindow(tk.Toplevel):
             self._reference_zero_latched[motor_index] = False
         abs_steps = int(motor.actual_position_steps)
         rel_steps = abs_steps - int(self._step_zero_offset.get(motor_index, 0))
+        encoder_now = float(motor.encoder_position_mm)
+        delta_enc = abs(encoder_now - float(self._last_encoder_mm.get(motor_index, 0.0)))
+        shaft_moving = bool(motor.running) and delta_enc > 0.001
+        self._shaft_moving[motor_index] = shaft_moving
+        self._last_encoder_mm[motor_index] = encoder_now
         self._var(ui, "actual_steps_var").set(f"actual steps: {abs_steps}")
         self._var(ui, "relative_steps_var").set(f"steps since zero: {rel_steps}")
         self._var(ui, "runtime_var").set(f"runtime: {motor.runtime_sec:.2f} s")
@@ -1367,6 +1405,15 @@ class NanotecWindow(tk.Toplevel):
 
         self._set_indicator(ui.get("connected_led"), "#2e7d32" if bool(motor.connected) else "#9e9e9e")
         self._set_indicator(ui.get("running_led"), "#2e7d32" if bool(motor.running) else "#9e9e9e")
+        self._cnc_status_vars[motor_index]["motor"].set(
+            f"M{motor_index} Motor: {'FAHRT' if bool(motor.running) else 'STOP'}"
+        )
+        self._cnc_status_vars[motor_index]["shaft"].set(
+            f"M{motor_index} Welle: {'DREHT' if shaft_moving else 'STEHT'}"
+        )
+        self._cnc_status_vars[motor_index]["position"].set(
+            f"M{motor_index} Position: {motor.actual_position_mm:.3f} mm | Steps: {rel_steps:+d}"
+        )
 
         # Tasterbits anhand konfigurierbarer Bitnummern lesen.
         if motor_index == 1:
@@ -1600,6 +1647,11 @@ class NanotecWindow(tk.Toplevel):
 
     def _log(self, text: str) -> None:
         self._msg_box.insert("end", text + "\n")
+        # Logbox begrenzen, damit die GUI bei Langzeitbetrieb nicht traege wird.
+        max_lines = 1200
+        current_lines = int(float(self._msg_box.index("end-1c").split(".")[0]))
+        if current_lines > max_lines:
+            self._msg_box.delete("1.0", f"{current_lines - max_lines}.0")
         self._msg_box.see("end")
 
     def set_controller(self, controller: "Controller") -> None:

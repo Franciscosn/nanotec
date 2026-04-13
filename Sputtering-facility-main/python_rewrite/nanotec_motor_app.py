@@ -43,9 +43,22 @@ class NanotecStandaloneRuntime:
         if settings_file is None:
             return settings
         try:
-            return load_runtime_settings(settings_file, base=settings)
+            settings = load_runtime_settings(settings_file, base=settings)
         except Exception:
-            return settings
+            pass
+        # Standalone: nur Nanotec aktiv lassen, andere Backends deaktivieren
+        # damit die GUI nicht durch Timeouts fremder Geraete blockiert.
+        ports = dict(settings.ports)
+        for key in ("dualg", "fug", "pinnacle", "expert"):
+            ports[key] = ""
+        return RuntimeSettings(
+            simulation=settings.simulation,
+            ports=ports,
+            pfeiffer_controller=settings.pfeiffer_controller,
+            pfeiffer_single_gauge=settings.pfeiffer_single_gauge,
+            pfeiffer_maxi_chamber_channel=settings.pfeiffer_maxi_chamber_channel,
+            pfeiffer_maxi_load_channel=settings.pfeiffer_maxi_load_channel,
+        )
 
     def _on_message(self, message: str) -> None:
         if self.window is not None and self.window.winfo_exists():
@@ -58,9 +71,19 @@ class NanotecStandaloneRuntime:
         return self.runtime_settings
 
     def _apply_runtime_settings(self, runtime: RuntimeSettings) -> None:
-        self.runtime_settings = runtime
+        ports = dict(runtime.ports)
+        for key in ("dualg", "fug", "pinnacle", "expert"):
+            ports[key] = ""
+        self.runtime_settings = RuntimeSettings(
+            simulation=runtime.simulation,
+            ports=ports,
+            pfeiffer_controller=runtime.pfeiffer_controller,
+            pfeiffer_single_gauge=runtime.pfeiffer_single_gauge,
+            pfeiffer_maxi_chamber_channel=runtime.pfeiffer_maxi_chamber_channel,
+            pfeiffer_maxi_load_channel=runtime.pfeiffer_maxi_load_channel,
+        )
         old_controller = self.controller
-        self.controller = Controller(on_message=self._on_message, runtime=runtime)
+        self.controller = Controller(on_message=self._on_message, runtime=self.runtime_settings)
         self.window.set_controller(self.controller)
         try:
             old_controller.shutdown()
