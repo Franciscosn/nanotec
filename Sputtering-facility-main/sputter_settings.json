@@ -1,0 +1,16 @@
+{
+  "simulation": true,
+  "ports": {
+    "nanotec": "",
+    "dualg": "",
+    "fug": "",
+    "pinnacle": "",
+    "expert": ""
+  },
+  "pfeiffer": {
+    "controller": "maxigauge",
+    "single_gauge": false,
+    "maxi_chamber_channel": 1,
+    "maxi_load_channel": 2
+  }
+}

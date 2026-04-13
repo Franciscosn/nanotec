@@ -1,0 +1,1068 @@
+Backend Aenderungs-Log (Sputtering Facility Python Rewrite)
+============================================================
+
+Zweck dieser Datei
+------------------
+Diese Datei ist das zentrale, fortlaufende Protokoll fuer wichtige Backend-Aenderungen.
+Ich dokumentiere hier jede relevante Aenderung so, dass sie auch fuer Personen ohne
+tiefe Programmiererfahrung nachvollziehbar bleibt.
+
+Diese Datei wird ab jetzt bei jeder groesseren Backend-Aenderung aktualisiert.
+
+
+Leseregeln fuer dieses Dokument
+-------------------------------
+Jeder Eintrag beantwortet immer dieselben Fragen:
+1) Was wurde geaendert?
+2) Warum wurde es geaendert?
+3) Welche technische Wirkung hat die Aenderung?
+4) Welche Risiken gibt es?
+5) Wie wurde die Aenderung geprueft?
+6) Was ist als naechstes geplant?
+
+
+Verbindlicher Kommentar- und Lesbarkeitsstandard fuer den Code
+---------------------------------------------------------------
+Auf deinen Wunsch gilt ab jetzt fuer neuen und ueberarbeiteten Code:
+
+1) Sehr ausfuehrliche Kommentare:
+   - Jede wichtige Funktion bekommt einen Kopfkommentar mit:
+     - Zweck
+     - Eingaben
+     - Ausgaben
+     - Fehlerfaelle
+     - Sicherheitsrelevanz (falls vorhanden)
+   - Komplexe Logik bekommt zusaetzlich Inline-Kommentare.
+
+2) Klare Benennung:
+   - Variablen- und Funktionsnamen muessen die fachliche Bedeutung klar zeigen.
+   - Kryptische Abkuerzungen werden vermieden oder direkt erklaert.
+
+3) Kleine, klar getrennte Funktionen:
+   - Jede Funktion soll eine klar erkennbare Aufgabe haben.
+   - Laengere Ablaeufe werden in gut benannte Teilschritte zerlegt.
+
+4) Fehlertexte fuer Menschen:
+   - Fehlermeldungen sollen fachlich klar und handlungsorientiert sein.
+   - Wenn moeglich, wird ein "naechster sinnvoller Schritt" mitgegeben.
+
+5) Dokumentation von Entscheidungen:
+   - Wenn ich vom Originalcode bewusst abweiche, wird das hier im Log begruendet.
+
+
+Eintrag 0001
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Projektorganisation / Qualitaetsstandard
+
+Was wurde geaendert?
+- Diese Datei wurde neu angelegt.
+- Der verbindliche Stil fuer sehr ausfuehrlich kommentierten, leicht lesbaren
+  wissenschaftlichen Backend-Code wurde festgelegt.
+
+Warum?
+- Du hast explizit gewuenscht, dass alle wichtigen Aenderungen nachvollziehbar
+  dokumentiert werden.
+- Du hast ausserdem gewuenscht, dass der Code fuer unerfahrene Wissenschaftler
+  leicht lesbar und sehr ausfuehrlich kommentiert ist.
+
+Technische Wirkung:
+- Noch keine Laufzeit-Aenderung am Programm.
+- Ab sofort klare Nachverfolgbarkeit fuer kommende Backend-Arbeit.
+
+Risiko:
+- Kein technisches Risiko fuer die Anwendung selbst, da nur Dokumentation.
+
+Pruefung:
+- Datei erfolgreich im Projektordner angelegt.
+
+Naechster Schritt:
+- Start der Backend-Integration fuer Pfeiffer Gauge Treiber (TPG 262 + MaxiGauge)
+  mit robuster Protokollbehandlung und ausfuehrlichen Kommentaren.
+
+
+Eintrag 0002
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Backend-Integration Pfeiffer Gauges + Fehlerkorrekturen
+
+Was wurde geaendert?
+- Die bisherige `dualg.py` wurde technisch grundlegend ersetzt:
+  - Neuer robuster Protokoll-Client fuer Pfeiffer (ACK/NAK/ENQ).
+  - Neuer Treiber `TPG262GaugeDevice`.
+  - Neuer Treiber `MaxiGaugeDevice`.
+  - Rueckwaertskompatibler Alias `DualGaugeDevice`.
+- Der bekannte Parsing-Fehler wurde behoben:
+  - Bei `PR1`/`PR2` wird jetzt korrekt `status,value` geparst.
+  - Der Druckwert wird aus dem zweiten Feld gelesen (nicht aus dem Statusfeld).
+- Vakuumzustand erweitert:
+  - `p_chamber_status`, `p_load_status` in `VacuumState`.
+- Single-Gauge-Standard geaendert:
+  - `single_gauge` standardmaessig auf `False`, damit Chamber und Load
+    standardmaessig beide gemessen werden.
+- Simulation erweitert:
+  - Simulationspfad schreibt jetzt auch passende Sensor-Statuscodes.
+- Controller modularisiert:
+  - Neue Treiber-Factory `_build_pfeiffer_device()`.
+  - Umschaltung zwischen `TPG262` und `MaxiGauge` per Konfiguration.
+- Neue Konfigurationsparameter:
+  - `SPUTTER_PFEIFFER_CONTROLLER` (`tpg262` oder `maxigauge`)
+  - `SPUTTER_PFEIFFER_SINGLE_GAUGE` (nur fuer TPG262)
+  - `SPUTTER_MAXI_CHAMBER_CHANNEL` (1..6)
+  - `SPUTTER_MAXI_LOAD_CHANNEL` (1..6)
+- Dokumentation aktualisiert:
+  - `README.md` um die neue Pfeiffer-Konfiguration und Windows/macOS-Beispiele erweitert.
+- Testabdeckung erweitert:
+  - Neuer Testblock `test_pfeiffer_backend.py` fuer
+    PR1-Parsing, PRX-Parsing, MaxiGauge-Kanalmapping, SEN-Maske.
+
+Warum?
+- Ziel war eine robuste und plattformstabile Pfeiffer-Integration fuer Montag
+  am Windows-PC, mit spaeterer Nutzbarkeit auch auf macOS.
+- Die alte Rewrite-Stelle hatte wesentliche technische Luecken:
+  - kein sauberes ACK/NAK-Handling,
+  - kein MaxiGauge-Treiber,
+  - falsches PR1-Parsing,
+  - Single-Gauge als unsicherer Standard fuer Interlocks.
+
+Technische Wirkung:
+- Das Backend kann jetzt zwei Pfeiffer-Controllerfamilien bedienen:
+  1) TPG 262 (2 Kanaele)
+  2) MaxiGauge / TPG 256 A (6 Kanaele, Mapping auf Chamber/Load)
+- Kommunikationsfehler werden klarer erkannt (NAK / kein ACK).
+- Die Sicherheitslogik bekommt wieder belastbarere Druckwerte fuer beide Seiten.
+
+Risiko:
+- Niedrig bis mittel:
+  - Neue Treiberlogik ist getestet, aber echte RS-232-Hardwaretests vor Ort bleiben wichtig.
+  - Bei abweichenden Controller-Firmwareantworten kann Feintuning am Timing noetig sein.
+
+Pruefung:
+- `python3 run.py --check` erfolgreich.
+- `python3 -m unittest discover -s tests -v` erfolgreich (8/8 Tests).
+
+Naechster Schritt:
+- Abschlussanalyse des Vakuum-Pumpen-Bedienteils (Interlocks/Expert-I/O) und
+  Dokumentation verbleibender Schwachstellen.
+
+
+Eintrag 0003
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Abschlussanalyse Vakuum-Pumpen-Bedienteil (Risiken/Schwachstellen)
+
+Analyseumfang:
+- `sputtering_app/devices/interlocks.py`
+- `sputtering_app/devices/expert.py`
+- `sputtering_app/controller.py`
+- Vergleich mit C++-Referenzlogik (`src/MainDlgOnCmd.cpp`, `src/expert.h`)
+
+Wichtigste erkannte Schwachstellen (priorisiert):
+
+1) Sicherheitsrelevant: Interlock-Aktionen pruefen nicht explizit den Live-Status
+   der Ports vor dem Umschalten.
+   - In der C++-Logik gab es bei mehreren Aktionen die Bedingung
+     `(DualG_portconnected || SIMULATION)`.
+   - Im aktuellen Python-Interlock ist diese Port-Bedingung nicht direkt enthalten.
+   - Folge: Bei Kommunikationsausfall koennen alte/stale Druckwerte weiter als
+     Entscheidungsgrundlage dienen.
+
+2) Hardware-Soll-/Ist-Synchronisation:
+   - Interlock-Funktionen setzen den logischen Ventilzustand sofort.
+   - Die physische Ausgabe erfolgt asynchron ueber `ExpertDevice.apply_pending_outputs`.
+   - Falls die Ausgabe spaeter scheitert, kann ein Zustand entstehen:
+     "Logik sagt offen", Hardware blieb aber ggf. zu.
+
+3) Gate-Load-Ansteuerung:
+   - Die Gate-Logik ist als boolescher Zustand vorhanden,
+     aber die direkte Expert-DI-Ansteuerung ist im Python-Backend derzeit nicht
+     vollstaendig explizit umgesetzt.
+   - Das ist konsistent mit dem historischen C++-Stand (dort ebenfalls nur teilweise),
+     aber fuer produktiven Betrieb eine bekannte Luecke.
+
+4) Kommentar-Qualitaet im Pumpen-Interlock-Teil:
+   - Funktionslogik ist zwar modular getrennt, aber noch nicht in allen Dateien
+     auf dem neu definierten "sehr ausfuehrlich kommentierten" Niveau.
+
+Bewertung Modularitaet:
+- Insgesamt gut integrierbar:
+  - Trennung in `interlocks`, `expert`, `controller` ist sinnvoll.
+  - Pfeiffer-Teil ist jetzt als austauschbarer Treiber modular eingebunden.
+- Fuer hoehere Betriebssicherheit sind als naechstes gezielte "Safety Gates"
+  im Controller empfohlen (Port-/Freshness-Checks vor Ventilaktionen).
+
+Empfohlene naechste Umsetzung:
+- Vor jeder kritischen Ventilaktion:
+  - Portstatus von Pfeiffer + Expert explizit pruefen
+  - optional Zeitstempel/Freshness der letzten Druckmessung pruefen
+  - bei Verstoß hart blockieren und klare Meldung ausgeben
+
+
+Eintrag 0004
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Umsetzung der Punkte 1-4 aus der Abschlussanalyse
+
+Ziel dieses Schritts:
+- Die vier priorisierten Schwachstellen aus Eintrag 0003 wurden gezielt implementiert:
+  1) Port-/Live-Checks
+  2) Soll/Ist-Synchronisation (Rollback bei Ausgabefehler)
+  3) Gate-Load-Ausgabeansteuerung
+  4) Deutlich ausfuehrlichere Kommentare in den sicherheitskritischen Bereichen
+
+Was wurde konkret geaendert?
+
+1) Safety-Gates fuer Interlock-Aktionen (Problem 1)
+- `interlocks.py` wurde inhaltlich ueberarbeitet.
+- Vor Ventilaktionen wird jetzt geprueft:
+  - Ist der Expert-Ausgabepfad verfuegbar?
+  - Ist der Gauge-Pfad verfuegbar (im Realbetrieb)?
+  - Gibt es frische Druckdaten?
+- Neue Schutzgrenze:
+  - `pressure_max_age_sec` in `PressureThresholds`
+  - Default: 3.0 s
+  - Optional per ENV steuerbar: `SPUTTER_PRESSURE_MAX_AGE_SEC`
+
+2) Transaktionales Interlock-Handling im Controller (Problem 2)
+- Neue Methode `_run_interlock_action(...)` in `controller.py`.
+- Ablauf:
+  1) Snapshot von Ventil-/Ausgangssollzustand
+  2) Interlock-Entscheidung
+  3) Sofortiger Hardware-Apply auf Expert-Karte
+  4) Bei Fehler:
+     - Ruecksetzen auf Snapshot
+     - Rollback-Meldung
+     - erneuter Apply-Versuch
+- Ergebnis:
+  - Reduziert den Zustand "Software offen, Hardware nicht offen".
+
+3) Gate-Load-Ausgabebit explizit gesetzt (Problem 3)
+- In `interlocks.py` schreibt `toggle_gate_load(...)` jetzt explizit ein
+  Expert-DI-Sollbit.
+- Implementierte Annahme:
+  - `E9043 DI1[2]` repräsentiert den Gate-Open-Sollzustand.
+- Diese Annahme ist zentral kommentiert und dokumentiert.
+
+4) Kommentar-/Lesbarkeitsniveau angehoben (Problem 4)
+- `interlocks.py` erhielt sehr ausfuehrliche Docstrings und Sicherheitskommentare.
+- Kritische Hilfsfunktionen und Fehlerpfade wurden explizit erklaert.
+- Auch `controller.py` hat jetzt ausfuehrlich kommentierte Interlock-Transaktion.
+
+Begleitende Datenmodell-/Zeitstempel-Erweiterung:
+- `VacuumState` besitzt jetzt `last_update_monotonic_s`.
+- Dieser Zeitstempel wird im Realbetrieb nach erfolgreicher Pfeiffer-Abfrage gesetzt
+  und in der Simulation pro Tick aktualisiert.
+
+Tests / Verifikation:
+- Bestehende Tests angepasst und erweitert.
+- Neue Testfaelle:
+  - Gate setzt explizites Ausgangsbit
+  - Realbetrieb blockiert Oeffnen ohne frische Druckprobe
+  - Back-Valve-Schliessen bleibt als fail-safe close moeglich
+- Ergebnis:
+  - `python3 run.py --check` erfolgreich
+  - `python3 -m unittest discover -s tests -v` erfolgreich (11/11)
+
+Restrisiko / offene Punkte:
+- Die Gate-Bit-Zuordnung (`DI1[2]`) ist als begruendete Integrationsannahme umgesetzt.
+  Fuer den finalen Anlagenbetrieb sollte diese Zuordnung einmal mit Verdrahtungsplan
+  oder Vor-Ort-Test bestaetigt werden.
+
+
+Eintrag 0005
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: GUI-Integration Vakuumpumpen (pressure_logger-Ansicht in der Hauptoberflaeche)
+
+Was wurde geaendert?
+- Neue Datei: `sputtering_app/pump_gui.py`
+  - Neues Unterfenster `VacuumPumpWindow` fuer den Bereich "Vakuumpumpen".
+  - Enthaltene Funktionen:
+    - Live-Anzeige von Chamber/Load inkl. Statuscodes.
+    - Farbige Statusindikatoren (OK/OFF/ERR).
+    - CSV-Logging mit robustem Dateihandling.
+    - Optionaler Live-Plot (nur wenn `matplotlib` installiert ist).
+    - Sensor-Schaltbuttons fuer Chamber/Load (EIN/AUS).
+- Haupt-GUI erweitert: `sputtering_app/gui.py`
+  - Neuer Button `Vakuumpumpen` in der oberen Leiste.
+  - Klick oeffnet oder fokussiert das neue Unterfenster.
+  - Bei jedem Haupt-Tick wird der aktuelle Controller-State an das Unterfenster
+    uebergeben (keine zweite serielle Verbindung).
+- Dokumentation erweitert: `README.md`
+  - Neue Sektion zur Vakuumpumpen-Navigation.
+  - Klarstellung, dass `matplotlib` optional ist.
+
+Warum?
+- Wunsch war eine integrierte Vakuumpumpen-GUI in der neuen Gesamtoberflaeche,
+  orientiert am bisherigen pressure_logger-Bedienkonzept.
+- Gleichzeitig musste die Port-Stabilitaet erhalten bleiben, insbesondere fuer
+  den Windows-Einsatz am Montag.
+
+Technische Wirkung:
+- Die neue Vakuumpumpen-GUI ist jetzt ein Teil der Hauptanwendung.
+- Monitoring/Logging im Unterfenster nutzt denselben Anlagenzustand wie die
+  Haupt-GUI und vermeidet damit Portkonflikte.
+- Die App bleibt lauffaehig, auch wenn `matplotlib` nicht installiert ist
+  (nur Plotbereich deaktiviert).
+
+Risiko:
+- Niedrig:
+  - Plot ist optional, Kernfunktionen laufen ohne Plot-Bibliothek.
+  - Es gibt noch keine automatisierten GUI-Interaktionstests (manuelle Sichtpruefung
+    vor Ort empfohlen).
+
+Pruefung:
+- Syntaxpruefung erfolgreich (`py_compile` auf neue/geaenderte GUI-Dateien).
+- Backend-Testlauf erfolgreich (`unittest`, alle Tests gruen).
+
+Naechster Schritt:
+- Vor-Ort-Kurztest auf dem Windows-PC mit echter Seriell-Hardware
+  (Portbelegung + Logging + Sensor EIN/AUS im neuen Unterfenster).
+
+
+Eintrag 0006
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Abschluss-Review Vakuumpumpen-Teil + Robustheitsnachbesserung
+
+Reviewfokus:
+- Interlock-/Pumpen-Backend (`controller.py`, `interlocks.py`, `expert.py`)
+- Neue Pumpen-Unter-GUI (`pump_gui.py`)
+
+Was wurde nach dem Review zusaetzlich verbessert?
+1) Rollback bei Sensor-Schaltfehlern im Controller:
+   - In `set_chamber_sensor()` und `set_load_sensor()` wird der logische
+     Sollzustand jetzt zurueckgesetzt, falls der Hardware-Aufruf fehlschlaegt.
+   - Wirkung: reduziert Soll/Ist-Inkonsistenzen.
+2) Zusatztests fuer diesen Rollback:
+   - Neue Testklasse `ControllerSensorRollbackTests` in `tests/test_backend.py`.
+3) Kleinere GUI-Haertungen in `pump_gui.py`:
+   - Leerer CSV-Pfad wird sauber abgefangen.
+   - CSV-Zeitachse bezieht sich jetzt auf Logging-Start (nicht Fensterstart).
+   - Oeffentliche `close_window()`-Methode fuer sauberes Schliessen durch
+     das Hauptfenster.
+
+Warum war das wichtig?
+- Der Pumpenbereich ist sicherheitsnah. Deshalb sind auch kleine
+  Zustandsinkonsistenzen relevant und wurden direkt korrigiert.
+
+Technische Wirkung:
+- Bessere Konsistenz bei Kommunikationsproblemen.
+- Klareres CSV-Verhalten bei mehreren Messphasen.
+- Stabileres Schliessen mit sicherem Dateiflush.
+
+Aktueller Stand nach Review:
+- Architektur ist modular und gut integrierbar.
+- Kommentierungsgrad im Pumpenteil ist jetzt sehr hoch und fuer Einsteiger
+  deutlich besser nachvollziehbar.
+- Keine unmittelbaren Blocker fuer den naechsten Entwicklungsschritt.
+
+Restrisiken / verbleibende Punkte:
+- GUI-Bereich ist aktuell nicht automatisiert getestet (nur manuell).
+- Gate-Bit-Zuordnung (`DI1[2]`) bleibt eine dokumentierte Integrationsannahme,
+  die vor Ort final bestaetigt werden sollte.
+
+Pruefung:
+- `python3 run.py --check` erfolgreich.
+- `python3 -m unittest discover -s tests -v` erfolgreich (13/13).
+
+
+Eintrag 0007
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Externe Recherche zu Praxisproblemen (Windows/macOS + Pfeiffer)
+
+Quellenbild:
+- Offizielle Pfeiffer-Dokumente (TPG 256 A / TPG 26x Protokoll)
+- Offizielle pySerial-Dokumentation
+- Offizielle Python/Tkinter- und Python.org-macOS-Tk-Hinweise
+- Offizielle Matplotlib-Backend-Dokumentation
+
+Wichtigste Erkenntnisse und Wirkung fuer unser Projekt:
+
+1) Pfeiffer-Kommunikation ist ACK/NAK + ENQ-basiert.
+   - Das bestaetigt unsere aktuelle Treiberarchitektur (ACK/NAK-Pruefung,
+     danach ENQ bei lesenden Kommandos).
+
+2) MaxiGauge `SEN` arbeitet mit 6 Feldern und Hinweis:
+   nicht alle Sensoren sind fernschaltbar.
+   - Wirkung fuer die GUI: Ein NAK bei `Gauge EIN/AUS` kann fachlich korrekt sein
+     (nicht zwingend ein Software-Bug).
+
+3) pySerial:
+   - Portnamen/-Metadaten sind plattformabhaengig.
+   - `exclusive` ist laut API nur POSIX-seitig relevant.
+   - Wirkung: Auf Windows organisatorisch sicherstellen, dass nicht zwei Programme
+     denselben COM-Port oeffnen.
+
+4) Tkinter auf macOS:
+   - Apple-/falsche Tk-Kombinationen koennen Abstuerze verursachen.
+   - Wirkung: Homebrew-/python.org-Python mit funktionierendem Tk verwenden,
+     wie bereits in `run.py` und README vorgesehen.
+
+5) Matplotlib/TkAgg:
+   - Fuer interaktive Tk-Plots muss tkinter verfuegbar sein.
+   - Wirkung: Unser optionaler Plot-Fallback ohne Matplotlib ist sinnvoll,
+     damit die Kernfunktion (Live-Werte + CSV) trotzdem laeuft.
+
+Bewertung nach externer Plausibilisierung:
+- Die aktuelle Architektur passt gut zu den dokumentierten Realbedingungen.
+- Es gibt keine neue "harte" Blockade aus der Recherche.
+
+Praktischer Vor-Ort-Hinweis fuer Montag (Windows):
+- Vor Messstart einmal Ports pruefen (`run.py --list-ports`),
+  dann sicherstellen, dass nur diese App den Gauge-COM-Port nutzt.
+
+
+Eintrag 0008
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Bugfix GUI-Startreihenfolge (AttributeError: logbox)
+
+Fehlerbild:
+- Beim Start konnte der Controller bereits eine Logmeldung senden,
+  bevor die GUI-Listbox (`self.logbox`) erzeugt war.
+- Ergebnis: `AttributeError: '_tkinter.tkapp' object has no attribute 'logbox'`.
+
+Ursache:
+- `Controller(on_message=self._log)` wurde im App-Konstruktor frueh erstellt.
+- `self._log()` griff direkt auf `self.logbox` zu.
+- `self.logbox` existierte zu diesem Zeitpunkt noch nicht.
+
+Umsetzung:
+- In `gui.py` wurde ein frueher Log-Puffer eingefuehrt:
+  - `self.logbox` startet als `None`.
+  - `self._early_log_messages` sammelt fruehe Meldungen.
+  - `_log()` puffert, solange die Listbox noch nicht gebaut ist.
+  - Nach GUI-Aufbau schreibt `_flush_early_logs()` alle gepufferten Meldungen
+    in die sichtbare Listbox.
+
+Technische Wirkung:
+- App startet robust auch dann, wenn der Controller waehrend der Initialisierung
+  bereits Meldungen ausgibt.
+
+Pruefung:
+- `python3 run.py --check` erfolgreich.
+- `python3 -m unittest discover -s tests -v` erfolgreich (13/13).
+
+
+Eintrag 0009
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Pinnacle-MDX Backend-Haertung + GUI-Integration
+
+Ausgangslage:
+- Der Pinnacle-Teil war zwar grundlegend vorhanden, aber fuer den
+  sicherheitskritischen Hochspannungsbetrieb noch nicht robust genug:
+  - keine strikte Protokollvalidierung,
+  - keine klare Readback-Verifikation nach Schreibbefehlen,
+  - keine fail-safe Reaktion im Fehlerfall,
+  - keine eigene, gut bedienbare Pinnacle-Unter-GUI in der neuen Oberflaeche.
+
+Was wurde im Backend geaendert (`devices/pinnacle.py`)?
+1) Strikte Antwortvalidierung fuer jede Pinnacle-Kommunikation:
+   - Frame-Mindestlaenge
+   - Length-Byte-Konsistenz
+   - Adress-/Laengenbyte-Konsistenz
+   - Command-Echo-Konsistenz
+   - XOR-CRC
+
+2) Klarere Fehlerklassen:
+   - `PinnacleProtocolError` fuer Protokoll-/Antwortfehler
+   - `PinnacleSafetyError` fuer sicherheitsrelevante Schreibpfadfehler
+
+3) Readback-Verifikation nach Sollwert-Write:
+   - Nach dem Schreiben werden Pulsfrequenz, Puls-Umkehrzeit,
+     Regelmodus und Setpoint wieder ausgelesen.
+   - Bei Abweichung wird der Vorgang als Fehler markiert.
+
+4) Fail-safe-Logik bei Schreibfehlern mit aktivem Ausgangswunsch:
+   - Wenn waehrend eines Apply-Pfads bei `active=True` ein Fehler passiert,
+     wird automatisch ein zusaetzlicher `DC_OFF`-Versuch ausgefuehrt.
+
+5) API-Verbesserung fuer kuenftige Multi-Head-Szenarien:
+   - `apply_controls(*channels)` akzeptiert jetzt variabel viele Kanaele
+     (kompatibel zu aktuellem A/B-Stand).
+
+Was wurde im Controller geaendert (`controller.py`)?
+1) Pinnacle-Tick auf kanalunabhaengige Schleife umgestellt:
+   - Statt hart verdrahtetem A/B-Write wird jetzt ueber eine Kanal-Liste gearbeitet.
+
+2) Neue klare Setter-API fuer GUI/Automatisierung:
+   - `set_pinnacle_channel_mode(...)`
+   - `set_pinnacle_channel_setpoint(...)`
+   - `set_pinnacle_channel_pulse_frequency_khz(...)`
+   - `set_pinnacle_channel_pulse_reverse_us(...)`
+   - `emergency_pinnacle_off_all()`
+
+3) Robuster Kanal-Resolver:
+   - `_pinnacle_channel_by_name(...)` validiert explizit erlaubte Kanaele.
+
+Was wurde in der GUI geaendert?
+1) Neue Pinnacle-Unter-GUI (`pinnacle_gui.py`):
+   - Eigenes Fenster `PinnacleWindow` mit zwei Hauptbereichen:
+     - Bedienung (Kanal A/B)
+     - Spannungsplot (Kanal A/B)
+   - Pro Kanal:
+     - EIN/AUS
+     - Regelmodus
+     - Setpoint
+     - Pulsfrequenz (5-kHz-Schritte)
+     - Puls-Umkehrzeit (0.1-us-Schritte)
+     - Live-Istwerte
+   - Global:
+     - `NOT-AUS Pinnacle (A+B OFF)`
+     - Meldungsfenster
+
+2) Integration in Hauptfenster (`gui.py`):
+   - Neuer Button `Pinnacle MDX`
+   - Fenster wird wie beim Pumpenfenster oeffnen/fokussieren/mitgetickt
+   - Sicheres Schliessen beim App-Exit
+
+3) README erweitert:
+   - Neue Dokumentation zur Pinnacle-Unter-GUI und den Sicherheitsmerkmalen.
+
+Warum diese Aenderung wichtig ist:
+- Der Pinnacle-Teil steuert ein Hochspannungsgeraet fuer sensible Sputterkoepfe.
+- Daher muessen Kommunikation und Rueckmeldung strikt geprueft werden,
+  statt Fehler "durchzuwinken".
+- Die neue GUI macht den Betrieb nachvollziehbarer und reduziert Bedienfehler.
+
+Tests / Verifikation:
+- Neue Testdatei `tests/test_pinnacle_backend.py` mit u.a.:
+  - Dekodierung kompletter Istwerte
+  - CRC-Fehlererkennung
+  - Adressierungs-Regression (insb. Kanal B)
+  - Emergency-DC_OFF-Versuch bei Apply-Fehler
+  - konservatives Verhalten von `check_connection`
+
+Offene Punkte / Restrisiko:
+- Die logische Verifikation prueft derzeit die zentralen Regelparameter,
+  aber nicht den finalen physikalischen Plasma-Zustand (der haengt vom
+  Prozessumfeld ab und muss im Realbetrieb validiert werden).
+- Vor Inbetriebnahme am Windows-PC trotzdem immer ein schrittweiser
+  Vor-Ort-Test mit Dummy-Last/abgesicherter Prozessumgebung durchfuehren.
+
+
+Eintrag 0010
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Nanotec-Backend-Haertung (Validierung + sichere Controller-API)
+
+Ausgangslage:
+- Der bisherige Nanotec-Teil konnte Grundfunktionen, aber es fehlten zentrale
+  Sicherheitsmechanismen fuer die Bedienoberflaeche:
+  - keine zentrale Parameter-Validierung fuer Speed/Loops/Step-Mode,
+  - kein sauberer Rollback bei fehlgeschlagenem Hardware-Apply,
+  - Schrittmodus-Aenderungen wurden nicht robust vor jeder Fahrt auf das Geraet
+    synchronisiert,
+  - keine klare, einheitliche API fuer GUI-Sollwertaenderungen.
+
+Was wurde geaendert?
+
+1) `devices/nanotec.py` deutlich erweitert:
+- Neue Validierungsfehlerklasse: `NanotecValidationError`
+- Neue Normalisierungs-/Validierungsfunktionen:
+  - `normalize_target_speed()`
+  - `normalize_target_position_mm()`
+  - `normalize_step_mode()`
+  - `normalize_loops()`
+- Klare Grenzwerte (an Legacy orientiert):
+  - Speed: 1..1100
+  - Loops: 1..254
+  - Step Modes: {1,2,4,5,8,10,16,32,64,254,255}
+- Start-/Konfigurationspfad gehaertet:
+  - Schrittmodus wird bei Bedarf aktiv geschrieben (`g...`) und per `Zg` verifiziert.
+- Lesbare Statusabbildung (`_status_text_from_code`) fuer 16/160/17/161/163.
+
+2) `controller.py` fuer Nanotec erweitert:
+- Neue sichere API-Methode:
+  - `configure_motor(...)`
+- Neue Komfort-/Sicherheitsmethoden:
+  - `stop_all_motors()`
+  - `reconnect_nanotec()`
+- Rollback-Mechanik fuer Motor-Sollwerte:
+  - Bei fehlgeschlagenem Real-Hardware-Apply werden vorherige Werte wiederhergestellt.
+- Start/Stop/Referenz wurden um Verbindungschecks und klarere Statusupdates ergaenzt.
+
+3) `models.py` ergaenzt:
+- `MotorState.progress_percent` fuer stabile GUI-Progressbars
+- `MotorState.referenced` fuer klare Anzeige des Referenzstatus (Statuscode 163)
+
+Warum ist das wichtig?
+- Der Schrittmotorbereich ist mechanisch sicherheitsrelevant.
+- Falsche Parameter oder nicht erkannte Kommunikationsfehler koennen Schlitten,
+  Endlagen oder Werkstuecktraeger beschaedigen.
+- Die neue Struktur macht die Bedienung robuster und fuer Einsteiger besser
+  nachvollziehbar.
+
+Pruefung:
+- `python3 -m py_compile` auf geaenderten Backend-Dateien erfolgreich.
+- Neue Unit-Tests fuer Nanotec-Backend und Controller-Rollback hinzugefuegt.
+
+
+Eintrag 0011
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Neue GUI-Unterseite Schrittmotoren + Matplotlib/Runtime-Doku
+
+Was wurde geaendert?
+
+1) Neue Datei `sputtering_app/nanotec_gui.py`:
+- Neues Fenster `NanotecWindow` mit zwei Motor-Panels.
+- Pro Motor implementiert:
+  - Sollwerte: Speed, Position, Step Mode, Direction, Reference Direction, Loops
+  - Befehle: Start, Stop, Referenz
+  - Live-Status: Verbindung, Laufstatus, Statuscode/-text, Position, Encoder,
+    Laufzeit, Restzeit, erwartete Laufzeit, Progressbar
+  - Taster-/Endschalteranzeige mit konfigurierbaren E9053-Bitzuordnungen
+- Global implementiert:
+  - `Nanotec neu verbinden`
+  - `STOPP ALLE MOTOREN`
+
+2) Haupt-GUI integriert (`sputtering_app/gui.py`):
+- Neuer Button `Schrittmotoren`.
+- Fenster wird wie Pumpen-/Pinnacle-Fenster geoeffnet, mitgetickt und sauber
+  geschlossen.
+
+3) Konfiguration erweitert (`config.py`):
+- `NANOTEC_STEP_MODES`
+- Taster-Bitmappings fuer Motor 1/2:
+  - `SPUTTER_MOTOR1_LEFT_TASTER_BIT`
+  - `SPUTTER_MOTOR1_RIGHT_TASTER_BIT`
+  - `SPUTTER_MOTOR2_LEFT_TASTER_BIT`
+  - `SPUTTER_MOTOR2_RIGHT_TASTER_BIT`
+
+4) Abhaengigkeiten/Doku aktualisiert:
+- `requirements.txt`: `matplotlib` aufgenommen.
+- `README.md` erweitert um:
+  - klare Simulation-vs-Real-Umschaltung,
+  - neue Schrittmotor-GUI,
+  - Windows-Hinweise zur Portbelegung,
+  - Hinweis zu `python3`/`py -3` bei `python`-Aliasproblemen.
+
+Warum ist das wichtig?
+- Die Schrittmotorsteuerung ist jetzt als eigener, strukturierter Teil der neuen
+  Gesamtoberflaeche verfuegbar.
+- Bediener sehen sofort, ob Motoren verbunden/laufend/referenziert sind.
+- Das reduziert Fehlbedienungen und macht die Inbetriebnahme am Windows-Rechner
+  transparenter.
+
+Pruefung:
+- `py_compile` fuer neue GUI-Datei und geaenderte Haupt-GUI erfolgreich.
+- Unit-Tests inkl. neuer Nanotec-Tests erfolgreich.
+
+
+Eintrag 0012
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Nanotec-Safety-Haertung + eindeutige Simulation/Real-Umschaltung
+
+Ausgangslage:
+- Nach dem letzten Stand gab es im Nanotec-Teil noch vier wichtige Restpunkte:
+  1) Portstatus konnte "connected" anzeigen, obwohl kein Motor verbunden war.
+  2) Polling war nicht sauber pro Motor isoliert (Teilfehlerfall).
+  3) Endschalter/Taster wurden angezeigt, aber noch nicht als harte Safety-Regel
+     fuer Start/Referenz/aktive Fahrt verwendet.
+  4) Im Realmodus konnte eine doppelte COM-Port-Zuordnung unklar bleiben.
+- Zusaetzlich war gewuenscht, dass Simulation vs. Real leichter und klarer
+  umschaltbar/erkennbar ist.
+
+Was wurde geaendert?
+
+1) `controller.py`: Nanotec-Tick von Block- auf pro-Motor-Logik umgebaut
+- Neue Methode `_tick_nanotec_port(...)`.
+- Polling erfolgt jetzt pro verbundenem Motor in isolierten `try/except`-Bloecken.
+- Ein Fehler bei Motor 1 blockiert Polling von Motor 2 nicht mehr.
+- Portstatus `state.ports["nanotec"]` wird korrekt gesetzt:
+  - `connected=False`, wenn kein Motor verbunden ist,
+  - `connected=True/failed=True`, wenn nur Teilfehler vorliegen,
+  - saubere Fehlertexte in `last_error`.
+
+2) `controller.py`: Endschalter als aktive Safety-Regel integriert
+- Neue Endschalter-Hilfsmethoden:
+  - `_motor_limit_mapping(...)`
+  - `_motor_limit_states(...)`
+  - `_would_move_into_active_limit(...)`
+  - `_enforce_motor_limit_stop_if_required(...)`
+- Sicherheitswirkung:
+  - `start_motor(...)` blockiert Start, wenn Endschalter in Fahrtrichtung aktiv.
+  - `reference_motor(...)` blockiert Referenzfahrt, wenn Endschalter in
+    Referenzrichtung aktiv.
+  - Waehren einer laufenden Fahrt wird bei Endschaltertreffer ein automatischer
+    Safety-Stop versucht.
+- Anti-Spam-Latch:
+  - Pro Motor wird gemerkt, dass ein auto-stop bereits gesendet wurde, damit
+    nicht in jedem Tick erneut STOP gesendet wird.
+
+3) `models.py`: MotorState um Endschalter-Sichtbarkeit erweitert
+- Neue Felder:
+  - `limit_left_active`
+  - `limit_right_active`
+  - `limit_stop_reason`
+- Zweck:
+  - Klarere Diagnose im zentralen Anlagenzustand.
+
+4) `config.py` + `nanotec_gui.py`: Endschalter-Aktivpegel konfigurierbar gemacht
+- Neue ENV-Parameter:
+  - `SPUTTER_MOTOR1_LEFT_TASTER_ACTIVE_LEVEL`
+  - `SPUTTER_MOTOR1_RIGHT_TASTER_ACTIVE_LEVEL`
+  - `SPUTTER_MOTOR2_LEFT_TASTER_ACTIVE_LEVEL`
+  - `SPUTTER_MOTOR2_RIGHT_TASTER_ACTIVE_LEVEL`
+- Damit lassen sich NO/NC-Verdrahtungen ohne Codeaenderung korrekt abbilden.
+- Nanotec-GUI zeigt nun Mapping inkl. Aktivpegel sowie Rohbitwert an.
+
+5) `controller.py`: Warnung bei mehrfach verwendeten Real-Ports
+- Neue Methode `_warn_if_shared_ports_in_real_mode()`.
+- Gibt im Realmodus eine explizite Warnung aus, wenn mehrere Backends denselben
+  Portnamen nutzen (typischer COM-Konfliktgrund).
+
+6) `run.py`: Simulation/Real jetzt direkt per CLI-Flag umschaltbar
+- Neue Startoptionen:
+  - `--simulation`
+  - `--real`
+- Diese setzen `SPUTTER_SIMULATION` vor dem Import der App-Module.
+- `--show-runtime` zeigt nun auch den aktuell gesetzten Simulation-Wert.
+
+7) `pump_gui.py` + `pinnacle_gui.py` + `README.md`
+- Sichtbarkeit des Betriebsmodus verbessert:
+  - Pumpenbereich zeigt `mode=simulation|real`.
+  - Pinnacle-Fenster zeigt `Mode` im Header.
+  - README um klare Flag-/Safety-Doku erweitert.
+
+Pruefung:
+- `python3 run.py --check` erfolgreich.
+- `python3 -m unittest discover -s tests -v` erfolgreich (28/28).
+- `python3 -m py_compile ...` auf geaenderten Dateien erfolgreich.
+- `python3 run.py --show-runtime --simulation|--real` manuell geprueft.
+
+Restrisiko / offene Punkte:
+- Die Endschalterlogik ist so gut wie das reale Bitmapping.
+  Daher vor Inbetriebnahme am Windows-PC einmal gezielt pruefen:
+  - welcher Bitkanal zu welchem physischen Schalter gehoert,
+  - welcher Aktivpegel (1 oder 0) korrekt ist.
+- Fuer Motor 2 sind die Default-Bits weiterhin `-1/-1` (unverdrahtet) und muessen
+  falls vorhanden vor Ort gesetzt werden.
+
+
+Eintrag 0013
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Tiefenanalyse Gesamtstand + Windows-Inbetriebnahmecheck (Pinnacle + MaxiGauge + Nanotec)
+
+Ausgangslage:
+- Gewuenscht war eine belastbare Aussage, ob der aktuelle Python-Stand am Montag
+  auf dem Windows-Rechner mit realer Hardware lauffaehig ist.
+- Fokus lag auf:
+  - klarer Simulation-vs-Real-Bedienung,
+  - Pinnacle-MDX + Pfeiffer-MaxiGauge-Betrieb,
+  - Plotfaehigkeit (matplotlib),
+  - Rest-Risiken beim Nanotec-Teil.
+
+Ergebnis der Tiefenanalyse:
+
+1) Simulation-vs-Real ist technisch klar eingebaut
+- Umschaltbar per:
+  - CLI: `run.py --simulation` / `run.py --real`
+  - ENV: `SPUTTER_SIMULATION=true|false`
+- Sichtbarkeit im UI:
+  - Hauptfenster: `Simulation: True/False`
+  - Unterfenster zeigen den Modus ebenfalls (Nanotec/Pumpen/Pinnacle).
+
+2) Plotdarstellung (matplotlib) ist integriert
+- `requirements.txt` enthaelt `matplotlib`.
+- Pumpen- und Pinnacle-Unterfenster besitzen optionale Live-Plots.
+- Falls matplotlib auf einem Rechner fehlt, laufen Bedienung und Logging weiter;
+  die Plotbereiche zeigen dann bewusst eine klare Hinweisnachricht.
+
+3) Windows-Lauffaehigkeit mit Pinnacle + MaxiGauge
+- Protokoll-/Treiberseite:
+  - Pinnacle-Frames werden auf Adresse/Kommando/CRC geprueft.
+  - Pfeiffer-Protokoll nutzt ACK/NAK + ENQ-Handshake.
+- Wichtiger Praxispunkt:
+  - COM-Ports muessen eindeutig pro Backend gesetzt werden.
+  - Der Controller warnt bereits, wenn mehrere Backends denselben Port nutzen.
+- Erwartung:
+  - Mit korrekter Portbelegung und installiertem pyserial/matplotlib ist der
+    Stand fuer den realen Windows-Test grundsaetzlich geeignet.
+
+4) Nanotec-Sicherheitsstatus
+- Implementiert:
+  - Parameter-Validierung, Rollback bei Apply-Fehlern,
+  - Start/Referenz-Block bei aktivem Endschalter in Fahrtrichtung,
+  - Auto-Safety-Stop bei Endschaltertreffer waehrend laufender Fahrt,
+  - Poll-Isolierung pro Motor.
+- Restrisiko bleibt physikalisch:
+  - Falsches Taster-Bitmapping oder falscher Aktivpegel (NO/NC) kann
+    Schutzfunktionen aushebeln.
+  - Daher ist vor Realfahrt ein dedizierter Endschalter-IO-Test Pflicht.
+
+Empfohlene Vor-Ort-Checkliste (Montag, Windows):
+1) Python + Abhaengigkeiten:
+   - `py -3 --version`
+   - `py -3 -m pip install -r requirements.txt`
+2) Realmodus setzen:
+   - `$env:SPUTTER_SIMULATION="false"`
+3) Eindeutige Ports setzen:
+   - z. B. `SPUTTER_PORT_DUALG`, `SPUTTER_PORT_PINNACLE`, `SPUTTER_PORT_NANOTEC`
+   - keine Doppelbelegung.
+4) Pfeiffer auf MaxiGauge konfigurieren:
+   - `SPUTTER_PFEIFFER_CONTROLLER=maxigauge`
+   - Kanalzuordnung Chamber/Load setzen.
+5) Endschalter-Bits/Pegel pruefen:
+   - Bits und aktive Pegel fuer Motor 1/2 verifizieren.
+6) Trockentest ohne Prozesslast:
+   - zuerst nur Verbindungs-/Readout-Checks,
+   - dann kleine Bewegungen/kleine Setpoints.
+7) Erst danach produktiven Betrieb aktivieren.
+
+Hinweis:
+- Diese Analyse ergaenzt den Code nicht mit neuen Fahrbefehlen, sondern dokumentiert
+  den verifizierten Iststand und die verbleibenden Inbetriebnahmerisiken in klarer
+  Form fuer den Realbetrieb.
+
+Eintrag 0014
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Nanotec-Safety-Update (Software-Fahrgrenzen + strengere Zielweg-Validierung)
+
+Ausgangslage:
+- Die Nanotec-Steuerung hatte bereits Endschalter-basierte Safety-Checks.
+- Fuer einen robusteren Realbetrieb (insbesondere vor Inbetriebnahme mit empfindlicher
+  Mechanik) war eine zweite, explizit konfigurierbare Schutzebene sinnvoll.
+- Ausserdem war die Zielweg-Eingabe bislang numerisch plausibel, aber negative Werte
+  wurden stillschweigend per `abs(...)` in eine positive Distanz ueberfuehrt.
+
+Was wurde geaendert?
+
+1) `config.py`: optionale Software-Fahrgrenzen pro Motor eingefuehrt
+- Neue ENV-Parameter:
+  - `SPUTTER_MOTOR1_SOFT_MIN_MM`
+  - `SPUTTER_MOTOR1_SOFT_MAX_MM`
+  - `SPUTTER_MOTOR2_SOFT_MIN_MM`
+  - `SPUTTER_MOTOR2_SOFT_MAX_MM`
+- Nicht gesetzte Werte bleiben `None` und sind damit deaktiviert.
+- Damit ist die Schutzfunktion bewusst opt-in und blockiert keine bestehende
+  Installation ungefragt.
+
+2) `controller.py`: Start-/Referenz-Safety um Soft-Limits erweitert
+- Neue Hilfslogik:
+  - `_motor_soft_limits(...)`
+  - `_would_move_outside_soft_limits(...)`
+  - `_would_reference_push_outside_soft_limits(...)`
+- Wirkung beim Start:
+  - Wenn Soft-Limits gesetzt sind und die geplante Bewegung ausserhalb des
+    erlaubten Fensters enden wuerde, wird der Start geblockt.
+- Wirkung bei Referenzfahrt:
+  - Wenn der Motor bereits am/ausserhalb der Soft-Grenze steht und die
+    Referenzrichtung weiter nach aussen zeigt, wird geblockt.
+- Zusaetzlich: `get_motor_soft_limits(...)` fuer GUI-Transparenz.
+
+3) `nanotec.py`: Zielweg strenger validiert
+- `normalize_target_position_mm(...)` akzeptiert jetzt nur noch Werte `>= 0`.
+- Begruendung:
+  - Die Richtung wird separat ueber `MotorDirection` gesetzt.
+  - Negative Zielwege sind in der Bedienung missverstaendlich und koennen
+    ungewollte Erwartungen erzeugen.
+
+4) `nanotec_gui.py`: Safety-Transparenz erhoeht
+- Header zeigt jetzt die konfigurierten Soft-Limits fuer Motor 1 und 2.
+- Jedes Motorpanel zeigt zusaetzlich eine Live-Zeile mit den Soft-Limits.
+- Ziel: Bediener sollen auf einen Blick sehen, ob diese Schutzebene aktiv ist.
+
+5) `README.md`: neue Doku fuer Soft-Limits
+- Beispiel-ENV fuer beide Motoren.
+- Klarer Hinweis, dass Soft-Limits Endschalter nicht ersetzen, sondern ergaenzen.
+
+6) Tests erweitert (`tests/test_nanotec_backend.py`)
+- Neuer Test: negative Zielposition wird korrekt abgelehnt.
+- Neuer Test: Start wird bei Soft-Limit-Ueberschreitung blockiert.
+- Neuer Test: Referenzfahrt wird bei unguenstiger Soft-Limit-Lage blockiert.
+
+Pruefung:
+- Unit-Tests inkl. neuer Nanotec-Safety-Tests erfolgreich.
+- `py_compile` auf geaenderten Modulen erfolgreich.
+
+Hinweis fuer Inbetriebnahme:
+- Soft-Limits sollten erst nach einmaliger Referenz-/Positionsvalidierung auf
+  reale Mechanikwerte gesetzt werden.
+- Zu enge Grenzen fuehren zu gewollten Safety-Blockaden; das ist kein
+  Kommunikationsfehler, sondern eine Schutzfunktion.
+
+Eintrag 0015
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: C++-Paritaetsluecken geschlossen (Gesamtuebersicht + Reconnect + erweiterte Plotsteuerung)
+
+Ausgangslage:
+- Es wurde eine Gesamtuebersicht auf einer Seite angefordert, in der die
+  Hauptprozesse sichtbar und direkt steuerbar sind.
+- Zusaetzlich sollten in den Bereichen Pinnacle, Nanotec und Pressure Gauges
+  fehlende Funktionen gegenueber der alten C++-Software geprueft und ergaenzt
+  werden.
+
+Analyseergebnis (C++ -> Python):
+1) Haupt-GUI:
+- Vorher: nur Basisknöpfe + wenige Livewerte.
+- C++-Original: zentrale Sicht auf Ports + mehrere Prozessbereiche parallel.
+- Luecke: fehlende Ein-Seiten-Gesamtsteuerung.
+
+2) Pressure Gauges / Pumpenansicht:
+- Vorher: Livewerte, Sensor-Toggle, CSV, Plot.
+- C++-Original zusaetzlich: umfangreiche Plotparameter (YLOG, Minor-Ticks,
+  min/max-Hold, Achsengrenzen, X-Margins).
+- Luecke: keine erweiterten Plotoptionen + kein expliziter Reconnect-Button.
+
+3) Pinnacle:
+- Vorher: Bedienung A/B + Basisplot.
+- C++-Original zusaetzlich: ausfuehrliche Plotparameter und explizite Port-
+  Bedienpfade.
+- Luecke: keine erweiterten Plotoptionen + kein expliziter Reconnect-Button.
+
+4) Nanotec:
+- Vorher bereits robuste Safety-Logik vorhanden.
+- Verbleibende Luecke: weniger direkte Ruecksynchronisierung der Eingabefelder
+  und fehlende Sichtbarkeit des letzten Endschalter-Stopgrunds im GUI-Panel.
+
+Umgesetzte Aenderungen:
+
+A) `sputtering_app/gui.py` (kompletter Neuaufbau Hauptfenster)
+- Neue Ein-Seiten-Gesamtuebersicht mit diesen Bereichen:
+  - Portstatus + Reconnect (dualg, pinnacle, nanotec, fug, expert)
+  - Vakuum/Gauge/Argon Schnellsteuerung
+  - Pinnacle Schnellsteuerung A/B
+  - Nanotec Schnellsteuerung Motor 1/2
+  - FUG Schnellsteuerung
+- Detailfenster (`Vakuumpumpen`, `Pinnacle MDX`, `Schrittmotoren`) bleiben
+  weiterhin verfuegbar.
+- Das Hauptfenster dient jetzt als zentrale Operator-Konsole fuer den
+  Inbetriebnahme- und Alltagsbetrieb.
+
+B) `sputtering_app/controller.py` (neue Reconnect-API)
+- Neue explizite Methoden:
+  - `reconnect_pfeiffer()`
+  - `reconnect_pinnacle()`
+  - `reconnect_fug()`
+  - `reconnect_expert()`
+- Alle Methoden aktualisieren den Runtime-Portstatus konsistent und schreiben
+  klare Logmeldungen.
+- `reconnect_fug()` synchronisiert bei Erfolg die Sollwerte erneut ins Geraet.
+- `reconnect_expert()` versucht nach Handshake direkt ausstehende Outputs
+  anzuwenden.
+
+C) `sputtering_app/pump_gui.py` (Pressure-Gauge-Funktionsausbau)
+- Neuer Button: `Gauge-Backend neu verbinden`.
+- Neue Plotoptionen (C++-nahe Bedienlogik):
+  - Y-Log ein/aus
+  - Minor-Grid ein/aus
+  - fixe Y-Grenzen optional
+  - Zeitfenster in Sekunden (0 = kompletter Puffer)
+- Validierte Uebernahme der Plotoptionen ueber eigenen Apply-Pfad.
+
+D) `sputtering_app/pinnacle_gui.py` (Pinnacle-Funktionsausbau)
+- Neuer Button: `Pinnacle-Backend neu verbinden`.
+- Neue Plotoptionen analog zur C++-Plotseite:
+  - Y-Log / Minor-Grid
+  - fixe Y-Grenzen getrennt fuer Kanal A und B
+  - Zeitfenster in Sekunden
+- Schutz fuer Y-Log-Plot: <=0-Werte werden als NaN behandelt, damit der Plot
+  stabil bleibt.
+
+E) `sputtering_app/nanotec_gui.py` (Nanotec-Bedienverbesserung)
+- Neuer Button pro Motor: `Sollwerte aus Motor laden`.
+- Neue Statuszeile: `last limit stop`, damit Endschalter-bedingte Stops fuer
+  Bediener sofort sichtbar und nachverfolgbar sind.
+
+F) Tests erweitert (`tests/test_backend.py`)
+- Neue Controller-Tests fuer alle neuen Reconnect-Methoden.
+- Geprueft werden Erfolgs-/Fehlpfade und Portstatus-Aktualisierung.
+
+Verifikation:
+- Syntaxcheck erfolgreich:
+  - `python3 -m py_compile ...`
+- Voller Testlauf erfolgreich:
+  - `python3 -m unittest discover -s tests -v`
+  - Ergebnis: 36/36 Tests `OK`
+- Runtime-Check erfolgreich:
+  - `python3 run.py --check`
+  - `python3 run.py --show-runtime --simulation`
+  - `python3 run.py --show-runtime --real`
+
+Hinweis zur C++-Qualitaet bei der Analyse:
+- Beim Vergleich fiel auf, dass im alten C++-Pinnacle-Dialog mehrere B-Kanal-
+  Selektionspfade mit Adresse `8` statt `148` senden. Der Python-Backendpfad
+  nutzt bereits sauber die Kanaladresse pro Kanalobjekt und ist hier robuster.
+
+Eintrag 0016
+------------
+Datum: 2026-04-11
+Status: abgeschlossen
+Typ: Gesamtseite erweitert + Safety-/Paritaetsluecken in Hauptbedienung geschlossen
+
+Ausgangslage:
+- Die Gesamtseite war bereits vorhanden, aber im Vergleich zum C++-Bedienteil
+  fehlten auf der Hauptseite noch zentrale Ventil-/Gate-Aktionen.
+- In der Schnellbedienung waren einige kritische Aktionen (Pinnacle ON,
+  Motorstart, Referenzfahrt) ohne explizite Bestaetigung ausfuehrbar.
+- Fuer den Realbetrieb wurde eine klarere Startdokumentation fuer Simulations-
+  und Hardwaremodus gewuenscht.
+
+Umgesetzte Aenderungen:
+
+1) `sputtering_app/gui.py`
+- Hauptseite "Vakuum / Gauges / Argon" um Ventil-/Gate-Schnellsteuerung erweitert:
+  - `Bypass Load Toggle`
+  - `VAT Load Toggle`
+  - `Back Valve Load Toggle`
+  - `Gate Toggle`
+  - `Bypass Chamber Toggle`
+  - `Back Valve Chamber Toggle`
+- Neue Live-Statuszeile fuer Ventilzustaende auf der Hauptseite.
+- Gauge-Backend-Information in die Livezeile aufgenommen
+  (tpg262 oder maxigauge CHx/CHy).
+- Safety-Wrapper fuer kritische Schnellaktionen:
+  - Pinnacle `ON` fragt jetzt explizite Bestaetigung.
+  - Motor `Start` fragt explizite Bestaetigung.
+  - Motor `Referenz` fragt explizite Bestaetigung.
+
+2) `README.md`
+- Copy/Paste-Startkommandos fuer macOS und Windows erweitert:
+  - klare Simulationsstarts
+  - klare Realstarts mit expliziten Port-/MaxiGauge-Variablen
+- Abschnitt Gesamtuebersicht um Ventil-/Gate-Steuerung ergaenzt.
+
+Analyse "was gegenueber C++ noch offen bleibt":
+- Das C++-Projekt hatte viele UI-Details in Bitmap-LED-Optik und zusätzliche
+  Dialogzustandslogik; der Python-Stand ist funktional vorhanden, aber visuell
+  bewusst vereinfacht.
+- C++ hatte VISA-spezifische Portlisten-/UI-Pfade; im Python-Rewrite erfolgt
+  die Portzuordnung primär ueber ENV + Reconnect.
+- Das fachlich relevante Kernverhalten fuer die angefragten Bereiche
+  (Pressure Gauges, Pinnacle, Nanotec, Ventilinterlocks) ist nun in der
+  Hauptseite und den Unterseiten abgedeckt.
+
+Verifikation:
+- Syntaxcheck erfolgreich:
+  - `python3 -m py_compile run.py sputtering_app/gui.py ...`
+- Unit-Tests erfolgreich:
+  - `python3 -m unittest discover -s tests -v`
+  - Ergebnis: 36/36 `OK`
+- Runtime-Checks erfolgreich:
+  - `python3 run.py --check`
+  - `python3 run.py --show-runtime --simulation`
+  - `python3 run.py --show-runtime --real`
